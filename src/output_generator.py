@@ -14,14 +14,13 @@ For AI Agents:
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
-import numpy as np
+
 import cv2
+import numpy as np
 from loguru import logger
 
 from .config import PipelineConfig
 from .layout_detector import Block, BlockType, LayoutResult, SubColumn
-
 
 # Colors (BGR format for OpenCV)
 COLORS = {
@@ -57,7 +56,7 @@ class OutputGenerator:
         self,
         output_dir: Path,
         pdf_stem: str,
-        config: Optional[PipelineConfig] = None
+        config: PipelineConfig | None = None
     ):
         self.output_dir = Path(output_dir)
         self.pdf_stem = pdf_stem

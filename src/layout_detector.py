@@ -13,17 +13,17 @@ For AI Agents:
     - FOOTER is always at the very bottom of the page
 """
 
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import Optional
 import difflib
 import re
 import shutil
 import subprocess
 import tempfile
+from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
-import numpy as np
+
 import cv2
+import numpy as np
 from loguru import logger
 
 from .config import PipelineConfig
@@ -106,7 +106,7 @@ class LayoutDetector:
     5. Group remaining into COMM blocks with sub-columns
     """
 
-    def __init__(self, config: Optional[PipelineConfig] = None):
+    def __init__(self, config: PipelineConfig | None = None):
         self.config = config or PipelineConfig()
         self._tesseract_path = None
         if self.config.tesseract_header:
@@ -196,7 +196,7 @@ class LayoutDetector:
                 left_header = False
                 right_header = False
                 center_header = False
-                for rx, ry, rw, rh in regions:
+                for rx, _, rw, _ in regions:
                     cx = rx + rw / 2
                     if rx < w * 0.25 and rw < w * 0.35:
                         left_header = True
@@ -255,7 +255,6 @@ class LayoutDetector:
 
         header_threshold = int(h * self.config.header_ratio)
         footer_threshold = int(h * 0.92)  # Bottom 8% is footer zone
-        timestamp_col_end = col1_end
         comm_text_min = 0.025
         comm_speaker_min = 0.02
 
@@ -472,7 +471,7 @@ class LayoutDetector:
 
             if fallback_rows:
                 header_rows = fallback_rows
-                header_set = set(id(r) for r in header_rows)
+                header_set = {id(r) for r in header_rows}
                 comm_rows = [r for r in comm_rows if id(r) not in header_set]
 
         # Group COMM candidates into blocks
@@ -588,8 +587,8 @@ class LayoutDetector:
                 gaps.append(gap)
 
         if gaps:
-            return np.median(gaps)
-        return 30
+            return float(np.median(gaps))
+        return 30.0
 
     def _detect_column_boundaries(
         self,
@@ -693,55 +692,6 @@ class LayoutDetector:
             return valley
 
         return center
-
-    def _calculate_line_spacing(self, regions: list[tuple[int, int, int, int]]) -> float:
-        """Calculate typical vertical spacing between lines."""
-        if len(regions) < 2:
-            return 30  # Default
-
-        # Calculate gaps between consecutive regions
-        gaps = []
-        sorted_regions = sorted(regions, key=lambda r: r[1])
-
-        for i in range(1, len(sorted_regions)):
-            prev_bottom = sorted_regions[i-1][1] + sorted_regions[i-1][3]
-            curr_top = sorted_regions[i][1]
-            gap = curr_top - prev_bottom
-            if gap > 0:
-                gaps.append(gap)
-
-        if gaps:
-            # Use median to avoid outliers
-            return np.median(gaps)
-        return 30
-
-    def _get_gap_above(
-        self,
-        index: int,
-        regions: list[tuple[int, int, int, int]],
-        default_spacing: float
-    ) -> float:
-        """Get vertical gap above a region."""
-        if index == 0:
-            return regions[0][1]  # Distance from top
-
-        curr_top = regions[index][1]
-        prev_bottom = regions[index-1][1] + regions[index-1][3]
-        return curr_top - prev_bottom
-
-    def _get_gap_below(
-        self,
-        index: int,
-        regions: list[tuple[int, int, int, int]],
-        default_spacing: float
-    ) -> float:
-        """Get vertical gap below a region."""
-        if index >= len(regions) - 1:
-            return default_spacing * 2  # Assume gap at end
-
-        curr_bottom = regions[index][1] + regions[index][3]
-        next_top = regions[index+1][1]
-        return next_top - curr_bottom
 
     def _group_comm_blocks(
         self,
@@ -877,7 +827,7 @@ class LayoutDetector:
         content_left: int,
         content_right: int,
         binary: np.ndarray
-    ) -> Optional[Block]:
+    ) -> Block | None:
         """Create a COMM block from a list of line regions."""
         if not regions:
             return None
@@ -913,45 +863,6 @@ class LayoutDetector:
         )
 
         return block
-
-    def _region_column(self, region: tuple[int, int, int, int], col1_end: int, col2_end: int) -> str:
-        """Assign a region to a column based on its center."""
-        x, y, w, h = region
-        center_x = x + w / 2
-        if center_x < col1_end:
-            return "timestamp"
-        if center_x < col2_end:
-            return "speaker"
-        return "text"
-
-    def _build_subcolumns(
-        self,
-        regions: list[tuple[int, int, int, int]],
-        col1_end: int,
-        col2_end: int,
-        content_left: int,
-        content_right: int
-    ) -> list[SubColumn]:
-        """Build tight sub-columns from actual region geometry."""
-        buckets = {"timestamp": [], "speaker": [], "text": []}
-
-        for region in regions:
-            col_type = self._region_column(region, col1_end, col2_end)
-            buckets[col_type].append(region)
-
-        subcols = []
-        for col_type, col_regions in buckets.items():
-            if not col_regions:
-                continue
-            subcol = self._merge_to_subcol(col_regions, col_type)
-
-            # Clamp to detected content bounds
-            subcol.x = max(subcol.x, content_left)
-            subcol.width = max(1, min(subcol.x2, content_right) - subcol.x)
-
-            subcols.append(subcol)
-
-        return subcols
 
     def _build_subcolumns_from_binary(
         self,
@@ -1059,7 +970,7 @@ class LayoutDetector:
                 "-c",
                 "preserve_interword_spaces=1",
             ]
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0:
                 return ""
             output_path = Path(f"{output_base}.txt")
@@ -1104,21 +1015,3 @@ class LayoutDetector:
             return 0.0
 
         return float((band > 0).sum()) / float(band.size)
-
-    def _merge_to_subcol(
-        self,
-        regions: list[tuple[int, int, int, int]],
-        col_type: str
-    ) -> SubColumn:
-        """Merge regions into a SubColumn."""
-        min_x = min(r[0] for r in regions)
-        min_y = min(r[1] for r in regions)
-        max_x = max(r[0] + r[2] for r in regions)
-        max_y = max(r[1] + r[3] for r in regions)
-
-        return SubColumn(
-            x=min_x, y=min_y,
-            width=max_x - min_x,
-            height=max_y - min_y,
-            col_type=col_type
-        )

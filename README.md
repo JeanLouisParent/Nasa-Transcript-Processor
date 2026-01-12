@@ -1,15 +1,15 @@
-# NASA Transcript Image Processing Pipeline
+# NASA Transcript Processing Pipeline
 
-Pipeline for processing scanned NASA mission transcripts. Performs page-by-page image enhancement and geometric layout detection, then runs OCR via LM Studio.
+Pipeline for processing scanned NASA mission transcripts. Performs page-by-page image enhancement, geometric layout detection, and OCR via LM Studio.
 
 ## Features
 
-- **Page-by-page processing**: Strictly processes one page at a time without loading entire PDF
+- **Page-by-page processing**: Processes one page at a time without loading entire PDF
 - **Image enhancement**: Deskew, contrast improvement, noise removal, text sharpening
-- **Geometric layout detection**: Detects text blocks purely by visual/geometric analysis
-- **Block classification**: Identifies headers, annotations, footers, and COMM blocks (no OCR)
-- **LM Studio OCR**: Sends enhanced pages for page-level text extraction
-- **Extensible**: Configurable for other NASA missions with different layouts
+- **Geometric layout detection**: Detects text blocks using visual analysis (no OCR)
+- **Block classification**: Identifies headers, annotations, footers, and COMM blocks
+- **LM Studio OCR**: High-performance AI OCR (optimized JPEG payload, <5s/page)
+- **Parallel processing**: Multi-threaded image processing with progress tracking
 
 ## Installation
 
@@ -18,8 +18,8 @@ Pipeline for processing scanned NASA mission transcripts. Performs page-by-page 
 git clone <repository-url>
 cd ocr_transcript_v2
 
-# Create virtual environment
-python -m venv venv
+# Create virtual environment (Python 3.10+ required)
+python3.10 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
@@ -29,99 +29,97 @@ pip install -r requirements.txt
 ## Quick Start
 
 ```bash
-# Place PDFs in input/ (or pass a full path)
-mkdir -p input
-
-# Process all pages
+# Process all pages (image + OCR)
 python main.py process AS11_TEC.PDF
 
-# Process specific page range
-python main.py process AS11_TEC.PDF --pages 1-50
+# Process specific pages
+python main.py process AS11_TEC.PDF -p 1-50
+python main.py process AS11_TEC.PDF -p 10,12,14-16
 
-# Process multiple ranges or pages
-python main.py process AS11_TEC.PDF --pages 10,12,14-16
+# Image processing only (skip OCR)
+python main.py process AS11_TEC.PDF --no-ocr
 
-# Clean previous outputs before processing
-python main.py process AS11_TEC.PDF --pages 1-10 --clean
+# Verbose logging
+python main.py process AS11_TEC.PDF -p 1-5 -v
 
-# Override LM Studio URL
-python main.py process AS11_TEC.PDF --pages 1-5 --ocr-url http://localhost:1234
+# Clean previous output
+python main.py process AS11_TEC.PDF --clean
 
-# Get PDF information
+# Custom OCR server
+python main.py process AS11_TEC.PDF --ocr-url http://localhost:8080
+
+# Get PDF info
 python main.py info AS11_TEC.PDF
-
 ```
 
 ## Output Structure
 
-For each page, the pipeline generates:
-
 ```
 output/
 └── AS11_TEC/
-    ├── Page_001/
-    │   ├── AS11_TEC_page_0001_raw.pdf       # Original single-page PDF
-    │   ├── AS11_TEC_page_0001_enhanced.png  # Processed/enhanced image
-    │   └── AS11_TEC_page_0001_blocks.png    # Block overlays
-    │   └── AS11_TEC_page_0001.json          # OCR blocks
-    ├── Page_002/
-    │   └── ...
+    └── Page_001/
+        ├── AS11_TEC_page_0001_raw.pdf       # Original page
+        ├── AS11_TEC_page_0001_enhanced.png  # Enhanced image
+        ├── AS11_TEC_page_0001_blocks.png    # Layout visualization
+        ├── AS11_TEC_page_0001_ocr_raw.txt   # Raw OCR text
+        └── AS11_TEC_page_0001.json          # Structured blocks
 ```
 
-## Input Directory
+## JSON Output Format
 
-By default, the CLI looks for PDFs in `input/`. You can also pass a full path:
-
-```bash
-python main.py process input/AS11_TEC.PDF
-python main.py info input/AS11_TEC.PDF
+```json
+{
+  "page": {
+    "number": 42,
+    "tape": "1/2",
+    "apollo": "APOLLO 11 AIR-TO-GROUND VOICE TRANSCRIPTION"
+  },
+  "blocks": [
+    {"type": "comm", "timestamp": "00 00 00 00", "speaker": "CDR", "text": "..."},
+    {"type": "continuation", "text": "..."},
+    {"type": "annotation", "text": "..."}
+  ]
+}
 ```
-
-Defaults for input/output directories and LM Studio URL live in
-`config/defaults.toml`.
 
 ## CLI Reference
 
 ### process
 
-Process a PDF document.
-
-```bash
-python main.py process <PDF_PATH> [OPTIONS]
+```
+python main.py process <PDF> [OPTIONS]
 
 Options:
-  -p, --pages RANGE     Page range (e.g., '1-50', '10', or '10,12,14-16')
-  --clean               Remove existing output directory before processing
-  --ocr-url TEXT        LM Studio base URL (overrides config/defaults.toml)
+  -p, --pages TEXT    Page range: '1-50', '10', '10,12,14-16'
+  --clean             Remove existing output first
+  --no-ocr            Skip OCR step
+  --ocr-url TEXT      LM Studio URL (overrides config)
+  -v, --verbose       Enable debug logging
 ```
 
 ### info
 
-Display PDF metadata.
-
-```bash
-python main.py info <PDF_PATH>
+```
+python main.py info <PDF>
 ```
 
 ## Configuration
 
-Global defaults live in `config/defaults.toml`. Mission-specific offsets
-live in `config/*.toml` (for example `config/apollo_11.toml`).
+**Global defaults**: `config/defaults.toml`
+```toml
+input_dir = "input"
+output_dir = "output"
+ocr_url = "http://localhost:1234"
+dpi = 300
+parallel = true
+workers = 4
+```
 
-Load in a custom script via `PipelineConfig.from_yaml()` and pass it to
-`TranscriptPipeline` (the CLI does not currently accept a `--config` flag).
-
-## Architecture
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture documentation.
-
-## Pipeline Stages
-
-See [docs/PIPELINE.md](docs/PIPELINE.md) for pipeline stage documentation.
-
-## Extending
-
-See [docs/EXTENDING.md](docs/EXTENDING.md) for extension guide.
+**Mission configs**: `config/apollo_*.toml`
+```toml
+file_name = "AS11_TEC.PDF"
+page_offset = 0
+```
 
 ## Requirements
 
@@ -132,6 +130,12 @@ See [docs/EXTENDING.md](docs/EXTENDING.md) for extension guide.
 - click (CLI)
 - tqdm (progress bars)
 - loguru (logging)
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md) - Module structure and data flow
+- [Pipeline](docs/PIPELINE.md) - Processing stages in detail
+- [Extending](docs/EXTENDING.md) - Adding missions, block types, processing steps
 
 ## License
 

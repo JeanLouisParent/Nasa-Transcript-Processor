@@ -11,20 +11,20 @@ For AI Agents:
     - Each page is processed independently (no inter-page dependencies)
 """
 
+import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Iterator, Callable
-import threading
 
 from loguru import logger
 from tqdm import tqdm
 
 from .config import PipelineConfig
-from .page_extractor import PageExtractor
 from .image_processor import ImageProcessor, ProcessingResult
 from .layout_detector import LayoutDetector, LayoutResult
 from .output_generator import OutputGenerator, PageOutput
+from .page_extractor import PageExtractor
 
 
 @dataclass
@@ -41,11 +41,11 @@ class PageResult:
         error: Error message if processing failed
     """
     page_num: int
-    processing: Optional[ProcessingResult] = None
-    layout: Optional[LayoutResult] = None
-    output: Optional[PageOutput] = None
+    processing: ProcessingResult | None = None
+    layout: LayoutResult | None = None
+    output: PageOutput | None = None
     success: bool = True
-    error: Optional[str] = None
+    error: str | None = None
 
 
 @dataclass
@@ -93,7 +93,7 @@ class TranscriptPipeline:
         self,
         pdf_path: Path,
         output_dir: Path,
-        config: Optional[PipelineConfig] = None
+        config: PipelineConfig | None = None
     ):
         """
         Initialize the pipeline.
@@ -180,8 +180,8 @@ class TranscriptPipeline:
     def process_range(
         self,
         start: int = 0,
-        end: Optional[int] = None,
-        progress_callback: Optional[Callable[[int, int], None]] = None
+        end: int | None = None,
+        progress_callback: Callable[[int, int], None] | None = None
     ) -> PipelineResult:
         """
         Process a range of pages.
@@ -236,7 +236,7 @@ class TranscriptPipeline:
     def process_pages(
         self,
         page_numbers: list[int],
-        progress_callback: Optional[Callable[[int, int], None]] = None
+        progress_callback: Callable[[int, int], None] | None = None
     ) -> PipelineResult:
         """
         Process a list of specific page numbers.
@@ -286,7 +286,7 @@ class TranscriptPipeline:
         self,
         start: int,
         end: int,
-        progress_callback: Optional[Callable[[int, int], None]] = None
+        progress_callback: Callable[[int, int], None] | None = None
     ) -> list[PageResult]:
         """
         Process pages sequentially.
@@ -317,7 +317,7 @@ class TranscriptPipeline:
         self,
         start: int,
         end: int,
-        progress_callback: Optional[Callable[[int, int], None]] = None
+        progress_callback: Callable[[int, int], None] | None = None
     ) -> list[PageResult]:
         """
         Process pages in parallel using ThreadPoolExecutor.
@@ -370,7 +370,7 @@ class TranscriptPipeline:
     def _process_pages_sequential(
         self,
         page_numbers: list[int],
-        progress_callback: Optional[Callable[[int, int], None]] = None
+        progress_callback: Callable[[int, int], None] | None = None
     ) -> list[PageResult]:
         """Process specific pages sequentially."""
         results = []
@@ -390,7 +390,7 @@ class TranscriptPipeline:
     def _process_pages_parallel(
         self,
         page_numbers: list[int],
-        progress_callback: Optional[Callable[[int, int], None]] = None
+        progress_callback: Callable[[int, int], None] | None = None
     ) -> list[PageResult]:
         """Process specific pages in parallel."""
         results = []
@@ -428,7 +428,7 @@ class TranscriptPipeline:
 
     def process_all(
         self,
-        progress_callback: Optional[Callable[[int, int], None]] = None
+        progress_callback: Callable[[int, int], None] | None = None
     ) -> PipelineResult:
         """
         Process all pages in the document.
@@ -444,27 +444,3 @@ class TranscriptPipeline:
             end=self.page_count,
             progress_callback=progress_callback
         )
-
-
-def run_pipeline(
-    pdf_path: Path,
-    output_dir: Path,
-    start: int = 0,
-    end: Optional[int] = None,
-    config: Optional[PipelineConfig] = None
-) -> PipelineResult:
-    """
-    Convenience function to run the complete pipeline.
-
-    Args:
-        pdf_path: Path to PDF file
-        output_dir: Output directory
-        start: Start page (0-indexed)
-        end: End page (exclusive)
-        config: Pipeline configuration
-
-    Returns:
-        PipelineResult with processing results
-    """
-    pipeline = TranscriptPipeline(pdf_path, output_dir, config)
-    return pipeline.process_range(start, end)

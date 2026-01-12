@@ -11,10 +11,7 @@ For AI Agents:
     - DPI affects output quality and processing time (300 is standard)
 """
 
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Optional
-import yaml
+from dataclasses import dataclass
 
 
 @dataclass
@@ -64,12 +61,6 @@ class PipelineConfig:
     unsharp_amount: float = 1.5
     unsharp_sigma: float = 1.0
 
-    
-
-    # Morphological cleaning
-    morph_kernel_size: int = 2
-    noise_max_area: int = 50  # Maximum area for noise removal
-
     # Deskew settings
     deskew_angle_threshold: float = 0.5  # Minimum angle to correct (degrees)
     deskew_max_angle: float = 10.0       # Maximum expected skew angle
@@ -94,57 +85,6 @@ class PipelineConfig:
 
     # Debug settings
     debug: bool = False
-    save_intermediates: bool = False
-
-    # Block classification colors (BGR format for OpenCV)
-    block_colors: dict = field(default_factory=lambda: {
-        "header": (255, 100, 100),      # Blue
-        "timestamp": (100, 255, 100),   # Green
-        "speaker": (100, 255, 255),     # Yellow
-        "transcript": (100, 100, 255),  # Red
-        "annotation": (255, 100, 255),  # Magenta
-        "continuation": (255, 255, 100),# Cyan
-        "unknown": (180, 180, 180),     # Gray
-    })
-
-    @classmethod
-    def from_yaml(cls, path: Path) -> "PipelineConfig":
-        """
-        Load configuration from a YAML file.
-
-        Args:
-            path: Path to YAML configuration file
-
-        Returns:
-            PipelineConfig instance with values from file
-
-        Example YAML:
-            dpi: 300
-            parallel: true
-            max_workers: 8
-            col1_end: 0.12
-        """
-        with open(path, "r") as f:
-            data = yaml.safe_load(f)
-        return cls(**data)
-
-    def to_yaml(self, path: Path) -> None:
-        """
-        Save configuration to a YAML file.
-
-        Args:
-            path: Path to save YAML configuration
-        """
-        # Convert dataclass to dict, handling non-serializable types
-        data = {}
-        for key, value in self.__dict__.items():
-            if isinstance(value, dict):
-                data[key] = dict(value)
-            else:
-                data[key] = value
-
-        with open(path, "w") as f:
-            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
     def validate(self) -> list[str]:
         """
@@ -174,7 +114,3 @@ class PipelineConfig:
             errors.append(f"output_format must be png, tiff, or webp, got {self.output_format}")
 
         return errors
-
-
-# Default configuration instance
-DEFAULT_CONFIG = PipelineConfig()

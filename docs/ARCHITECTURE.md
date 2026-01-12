@@ -1,6 +1,6 @@
 # Architecture Documentation
 
-This document describes the architecture of the NASA Transcript Processing Pipeline. It is designed for both human developers and AI code agents.
+This document describes the architecture of the NASA Transcript Processing Pipeline.
 
 ## Overview
 
@@ -10,31 +10,27 @@ This document describes the architecture of the NASA Transcript Processing Pipel
 │                     Click-based interface                       │
 └─────────────────────────────────────────────────────────────────┘
                                │
-                               ▼
+           ┌───────────────────┼───────────────────┐
+           ▼                   ▼                   ▼
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│    pipeline.py  │  │  ocr_client.py  │  │  ocr_parser.py  │
+│  (Orchestrator) │  │  (LM Studio)    │  │  (Text Parser)  │
+└─────────────────┘  └─────────────────┘  └─────────────────┘
+         │
+         ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                     pipeline.py (Orchestrator)                  │
-│            Coordinates all processing, parallel execution       │
+│                     Processing Pipeline                          │
+├─────────────┬─────────────┬─────────────┬─────────────┐         │
+│   page_     │   image_    │   layout_   │   output_   │         │
+│ extractor   │ processor   │  detector   │ generator   │         │
+└─────────────┴─────────────┴─────────────┴─────────────┘         │
 └─────────────────────────────────────────────────────────────────┘
-         │              │              │              │
-         ▼              ▼              ▼              ▼
-┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-│   page_     │ │   image_    │ │   layout_   │ │   block_    │
-│ extractor   │ │ processor   │ │  detector   │ │ classifier  │
-│    .py      │ │    .py      │ │    .py      │ │    .py      │
-└─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘
-                                                       │
-                                                       ▼
-                                              ┌─────────────┐
-                                              │   output_   │
-                                              │ generator   │
-                                              │    .py      │
-                                              └─────────────┘
-                                                       │
-                                                       ▼
-                                              ┌─────────────┐
-                                              │  config.py  │
-                                              │ (shared)    │
-                                              └─────────────┘
+                               │
+                               ▼
+                      ┌─────────────────┐
+                      │   config.py     │
+                      │   (shared)      │
+                      └─────────────────┘
 ```
 
 ## Module Responsibilities
@@ -43,11 +39,39 @@ This document describes the architecture of the NASA Transcript Processing Pipel
 **Purpose**: Centralized configuration management
 
 **Key Classes**:
-- `PipelineConfig`: Dataclass with all configurable parameters
+- `PipelineConfig`: Dataclass with all configurable parameters (~30 fields)
 
-**Extension Points**:
-- Add new parameters to `PipelineConfig`
-- Use `from_yaml()` for mission-specific configs
+**Key Parameters**:
+- `dpi`: Output resolution (default: 300)
+- `parallel`: Enable parallel processing (default: True)
+- `max_workers`: Number of workers (default: 4)
+- `col1_end`, `col2_end`: Column boundary ratios
+- `header_ratio`: Header zone height ratio
+
+**Methods**:
+- `validate()`: Returns list of validation errors
+
+### global_config.py
+**Purpose**: Load global defaults from TOML
+
+**Key Classes**:
+- `GlobalConfig`: Input/output directories, OCR URL, workers
+
+**Usage**:
+```python
+config = load_global_config(Path("config/defaults.toml"))
+```
+
+### mission_config.py
+**Purpose**: Load mission-specific settings from TOML
+
+**Key Classes**:
+- `MissionConfig`: Page offset, file name matching
+
+**Usage**:
+```python
+config = load_mission_config(Path("config"), "AS11_TEC.PDF")
+```
 
 ### page_extractor.py
 **Purpose**: Extract pages from PDF without loading entire document
@@ -56,105 +80,118 @@ This document describes the architecture of the NASA Transcript Processing Pipel
 - `PageExtractor`: Main extraction class
 
 **Key Methods**:
-- `extract_page_image(page_num)`: Get page as numpy array
+- `extract_page_image(page_num)`: Get page as numpy array (BGR)
 - `extract_page_pdf(page_num, path)`: Extract single page PDF
 - `iter_pages(start, end)`: Lazy page iterator
+- `get_page_info(page_num)`: Get page metadata
 
-**Thread Safety**: Yes (uses mutex for PDF access)
+**Thread Safety**: Yes (each call opens/closes PDF)
 
 ### image_processor.py
 **Purpose**: Image enhancement and normalization
 
 **Key Classes**:
 - `ImageProcessor`: Main processing class
-- `ProcessingResult`: Result dataclass
+- `ProcessingResult`: Result with image and metadata
 
-**Pipeline Steps**:
+**Processing Steps**:
 1. Grayscale conversion
 2. Deskew (rotation correction)
-3. Size normalization
+3. Size normalization (Letter size @ 300 DPI)
 4. CLAHE contrast enhancement
 5. Bilateral noise removal
-6. Morphological spot cleaning
+6. Spot cleaning (remove small artifacts)
 7. Unsharp mask sharpening
 
-**Extension Points**:
-- Add processing steps in `process()` method
-- Override individual step methods
-
 ### layout_detector.py
-**Purpose**: Detect text blocks geometrically
+**Purpose**: Detect and classify text blocks geometrically
 
 **Key Classes**:
-- `Block`: Bounding box with metadata
-- `LayoutResult`: Detection result
-- `LayoutDetector`: Main detector
+- `Block`: Bounding box with type and sub-columns
+- `SubColumn`: Timestamp/speaker/text regions within COMM blocks
+- `LayoutResult`: List of blocks with page dimensions
+- `LayoutDetector`: Main detector class
+- `BlockType`: Enum (HEADER, FOOTER, ANNOTATION, COMM)
 
 **Algorithm**:
-1. Binarize + horizontal dilation (connect characters)
-2. Line region detection + row clustering (merge overlaps)
-3. Column boundary detection from ink projection
-4. Header/footer/annotation/COMM classification (geometric heuristics)
-5. COMM grouping with continuation rows
-
-**Extension Points**:
-- Adjust kernel sizes for different fonts
-- Add column detection heuristics
-
-### block_classifier.py
-**Purpose**: Legacy classifier (not used by the pipeline)
-
-**Key Classes**:
-- `BlockType`: Enum of block types
-- `ClassifiedBlock`: Block with classification
-- `BlockClassifier`: Main classifier
-
-**Notes**:
-- The current pipeline uses `layout_detector.py` for block typing.
-- This module is kept for experimentation and may be removed later.
-
-**Extension Points**:
-- Add new `BlockType` values
-- Modify classification heuristics
+1. Binarize with adaptive threshold
+2. Horizontal dilation (connect characters into lines)
+3. Vertical dilation (connect lines into blocks)
+4. Contour detection and filtering
+5. Row clustering and column boundary detection
+6. Block classification using geometric heuristics
+7. COMM grouping with continuation support
 
 ### output_generator.py
-**Purpose**: Generate output files
+**Purpose**: Generate output files for each page
 
 **Key Classes**:
-- `PageOutput`: Output file paths
-- `OutputGenerator`: Main generator
+- `PageOutput`: Paths to generated files
+- `OutputGenerator`: Main generator class
 
-**Outputs**:
-- `<PDF>_page_XXXX_raw.pdf`: Single page PDF
-- `<PDF>_page_XXXX_enhanced.png`: Processed image
-- `<PDF>_page_XXXX_blocks.png`: Image with block overlays
+**Outputs per page**:
+- `*_raw.pdf`: Single page extracted from source
+- `*_enhanced.png`: Processed grayscale image
+- `*_blocks.png`: Image with colored block overlays
 
-**Extension Points**:
-- Add new output formats
-- Modify blocks visualization
+**Block Colors** (BGR):
+- HEADER: Blue (255, 150, 50)
+- FOOTER: Gray (150, 150, 150)
+- ANNOTATION: Magenta (255, 100, 255)
+- COMM: Green outline + light green fill
 
 ### ocr_client.py
-**Purpose**: Optional OCR via LM Studio
+**Purpose**: Send images to LM Studio for OCR
 
 **Key Classes**:
-- `LMStudioOCRClient`: OpenAI-compatible client for page OCR
+- `LMStudioOCRClient`: OpenAI-compatible API client
+- `OCRError`: Base exception
+- `OCRConnectionError`: Connection failures
+- `OCRResponseError`: Invalid responses
 
-**Notes**:
-- Sends enhanced page images to a local LM Studio server.
-- Used by the `ocr` CLI command for page-level text extraction.
+**Features**:
+- Automatic retry with different image token formats
+- Fallback to OpenAI-style image_url format
+- Configurable timeout (default: 120s)
+
+### ocr_parser.py
+**Purpose**: Parse OCR text into structured blocks
+
+**Key Functions**:
+- `parse_ocr_text(text, page_num)`: Parse plain text into rows
+- `build_page_json(rows, lines, page_num, offset)`: Build JSON output
+- `extract_header_metadata(lines, page_num, offset)`: Extract page info
+
+**Output JSON Structure**:
+```json
+{
+  "page": {"number": 42, "tape": "1/2", "apollo": "APOLLO 11..."},
+  "blocks": [
+    {"type": "comm", "timestamp": "00 00 00 00", "speaker": "CDR", "text": "..."},
+    {"type": "continuation", "text": "..."},
+    {"type": "annotation", "text": "..."}
+  ]
+}
+```
 
 ### pipeline.py
 **Purpose**: Orchestrate complete processing
 
 **Key Classes**:
-- `PageResult`: Single page result
-- `PipelineResult`: Full document result
+- `PageResult`: Single page processing result
+- `PipelineResult`: Full document result with statistics
 - `TranscriptPipeline`: Main orchestrator
+
+**Key Methods**:
+- `process_page(page_num)`: Process single page
+- `process_pages(page_numbers)`: Process specific pages
+- `process_range(start, end)`: Process page range
+- `process_all()`: Process entire document
 
 **Features**:
 - Sequential and parallel processing
 - Progress callbacks
-- Error handling per page
+- Per-page error handling
 
 ## Data Flow
 
@@ -167,14 +204,13 @@ numpy.ndarray (BGR, 300 DPI)
     ▼ ImageProcessor.process()
 ProcessingResult (grayscale, normalized)
     │
-    ▼ LayoutDetector.detect()
-LayoutResult (list of Block)
-    │
-    ▼ BlockClassifier.classify()
-ClassificationResult (list of ClassifiedBlock)
-    │
-    ▼ OutputGenerator.generate()
-PageOutput (file paths)
+    ├──────────────────────────────────────┐
+    │                                      │
+    ▼ LayoutDetector.detect()              ▼ LMStudioOCRClient.ocr_image()
+LayoutResult (blocks with classification)  Raw OCR text
+    │                                      │
+    ▼ OutputGenerator.generate()           ▼ parse_ocr_text() + build_page_json()
+PageOutput (PNG, PDF files)                JSON file
 ```
 
 ## Threading Model
@@ -182,36 +218,69 @@ PageOutput (file paths)
 ```
 Main Thread
     │
-    ├── ThreadPoolExecutor (max_workers=4)
+    ├── ThreadPoolExecutor (max_workers from config)
     │       │
     │       ├── Worker 1: process_page(0)
     │       ├── Worker 2: process_page(1)
     │       ├── Worker 3: process_page(2)
-    │       └── Worker 4: process_page(3)
+    │       └── Worker N: process_page(N)
     │
-    └── tqdm progress bar
+    └── tqdm progress bar (sequential OCR follows)
 ```
 
 **Thread Safety**:
-- PDF extraction uses mutex (`_extract_lock`)
-- OpenCV operations are thread-safe
-- Output directories created atomically
+- PDF extraction: Each worker opens its own file handle
+- OpenCV operations: Thread-safe
+- Output directories: Created atomically with `exist_ok=True`
+- OCR: Sequential (not parallelized)
 
 ## Error Handling
 
-Each page is processed independently:
-- Errors are caught and logged
-- Failed pages don't stop pipeline
-- `PageResult.success` and `.error` track failures
+- **Per-page isolation**: Errors don't stop the pipeline
+- **Logging**: Uses loguru at WARNING level (DEBUG with -v)
+- **Result tracking**: `PageResult.success` and `.error` fields
+- **Exit codes**: Non-zero if any pages fail
+- **OCR errors**: Caught and written to JSON with error field
 
 ## Configuration Hierarchy
 
 ```
-DEFAULT_CONFIG (hardcoded defaults)
+PipelineConfig defaults (hardcoded in dataclass)
        │
        ▼
-YAML file (via `PipelineConfig.from_yaml` in custom scripts) [optional]
+GlobalConfig (config/defaults.toml)
        │
        ▼
-CLI arguments (--dpi, --workers, etc.)
+MissionConfig (config/apollo_*.toml)
+       │
+       ▼
+CLI arguments (--pages, --no-ocr, --ocr-url, -v)
+```
+
+## File Structure
+
+```
+ocr_transcript_v2/
+├── main.py                 # CLI entry point
+├── config/
+│   ├── defaults.toml       # Global defaults
+│   └── apollo_*.toml       # Mission configs (11 files)
+├── src/
+│   ├── __init__.py
+│   ├── config.py           # PipelineConfig
+│   ├── global_config.py    # GlobalConfig loader
+│   ├── mission_config.py   # MissionConfig loader
+│   ├── page_extractor.py   # PDF → numpy
+│   ├── image_processor.py  # Image enhancement
+│   ├── layout_detector.py  # Block detection
+│   ├── output_generator.py # File generation
+│   ├── ocr_client.py       # LM Studio client
+│   ├── ocr_parser.py       # OCR text parsing
+│   └── pipeline.py         # Orchestrator
+├── docs/
+│   ├── ARCHITECTURE.md     # This file
+│   ├── PIPELINE.md         # Stage details
+│   └── EXTENDING.md        # Extension guide
+├── input/                  # Default PDF location
+└── output/                 # Generated files
 ```

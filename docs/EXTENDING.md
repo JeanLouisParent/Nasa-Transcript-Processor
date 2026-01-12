@@ -1,65 +1,58 @@
 # Extension Guide
 
-This document explains how to extend the pipeline for different missions or requirements.
+How to extend the pipeline for different missions or requirements.
 
 ## Adding a New Mission
 
-### Step 1: Create Mission Configuration
+### Step 1: Create Mission Config
 
-Create a YAML configuration file for the new mission:
+Create a TOML file in `config/`:
 
-```yaml
-# configs/apollo12.yaml
-
-# Extraction
-dpi: 300
-output_format: png
-
-# Parallelism
-parallel: true
-max_workers: 8
-
-# Normalization (adjust if page size differs)
-target_width: 2550
-target_height: 3300
-margin_px: 75
-
-# Enhancement (adjust for scan quality)
-clahe_clip_limit: 2.5
-bilateral_d: 11
-bilateral_sigma_color: 80
-bilateral_sigma_space: 80
-
-# Layout (adjust for column positions)
-col1_end: 0.12      # Timestamp column end
-col2_end: 0.28      # Speaker column end
-header_ratio: 0.08  # Header height ratio
-
-# Block detection (adjust for font size)
-line_kernel_width: 45
-block_kernel_height: 8
-min_block_area: 800
+```toml
+# config/apollo_12.toml
+file_name = "AS12_TEC.PDF"
+page_offset = 0
 ```
 
-### Step 2: Run with Configuration
+### Step 2: Adjust Parameters (if needed)
 
-The CLI does not accept a `--config` flag yet. Load the YAML in a small script:
+Create a custom `PipelineConfig` for different layouts:
 
 ```python
 from pathlib import Path
 from src.config import PipelineConfig
 from src.pipeline import TranscriptPipeline
 
-config = PipelineConfig.from_yaml(Path("configs/apollo12.yaml"))
+config = PipelineConfig(
+    dpi=300,
+    # Column positions (adjust for different layouts)
+    col1_end=0.12,      # Timestamp/speaker boundary
+    col2_end=0.28,      # Speaker/text boundary
+    header_ratio=0.08,  # Header zone height
+    # Detection sensitivity
+    line_kernel_width=45,
+    min_block_area=800,
+)
+
 pipeline = TranscriptPipeline(Path("APOLLO12.PDF"), Path("output"), config)
 pipeline.process_range(0, pipeline.page_count)
 ```
+
+### Common Adjustments
+
+| Parameter | When to adjust |
+|-----------|----------------|
+| `col1_end`, `col2_end` | Different column widths |
+| `header_ratio` | Larger/smaller headers |
+| `line_kernel_width` | Wider/narrower character spacing |
+| `clahe_clip_limit` | Low contrast scans |
+| `bilateral_d` | Noisy scans |
 
 ---
 
 ## Adding a New Block Type
 
-### Step 1: Add to BlockType Enum
+### Step 1: Add to Enum
 
 Edit `src/layout_detector.py`:
 
@@ -72,21 +65,34 @@ class BlockType(Enum):
     FOOTNOTE = "footnote"  # New type
 ```
 
-### Step 2: Add Detection Rule
+### Step 2: Add Detection Logic
 
-In `LayoutDetector.detect()`, add the new rule and append rows to a new block list
-(similar to header/footer/annotation handling). Then merge rows into a block.
+In `LayoutDetector.detect()`, add classification rules:
 
-### Step 3: Update Output Visualization
+```python
+# Example: detect footnotes at bottom with specific pattern
+if row_y > page_h * 0.9 and row_width < page_w * 0.5:
+    block_type = BlockType.FOOTNOTE
+```
 
-In `src/output_generator.py`, add color and drawing logic if you want it visible
-in `*_blocks.png`.
+### Step 3: Add Visualization
+
+In `src/output_generator.py`, add color:
+
+```python
+COLORS = {
+    # ... existing colors ...
+    'footnote': (100, 100, 200),  # Light red
+}
+```
+
+And update `_create_blocks_image()` to handle the new type.
 
 ---
 
 ## Adding a Processing Step
 
-### Step 1: Add Configuration Parameters
+### Step 1: Add Config Parameter
 
 In `src/config.py`:
 
@@ -95,37 +101,24 @@ In `src/config.py`:
 class PipelineConfig:
     # ... existing params ...
 
-    # New: Adaptive binarization for faded text
+    # New: Adaptive binarization
     adaptive_binarize: bool = False
     adaptive_block_size: int = 31
-    adaptive_c: int = 10
 ```
 
-### Step 2: Implement Processing Step
+### Step 2: Implement Step
 
 In `src/image_processor.py`:
 
 ```python
-class ImageProcessor:
-    def _adaptive_binarize(self, image: np.ndarray) -> np.ndarray:
-        """
-        Apply adaptive binarization for severely faded text.
-
-        This creates a high-contrast binary image that may improve
-        readability of very faint text.
-        """
-        if not self.config.adaptive_binarize:
-            return image
-
-        binary = cv2.adaptiveThreshold(
-            image,
-            255,
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY,
-            self.config.adaptive_block_size,
-            self.config.adaptive_c
-        )
-        return binary
+def _adaptive_binarize(self, image: np.ndarray) -> np.ndarray:
+    """Apply adaptive binarization for faded text."""
+    return cv2.adaptiveThreshold(
+        image, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        self.config.adaptive_block_size, 10
+    )
 ```
 
 ### Step 3: Add to Pipeline
@@ -133,42 +126,31 @@ class ImageProcessor:
 In `ImageProcessor.process()`:
 
 ```python
-def process(self, image: np.ndarray) -> ProcessingResult:
-    # ... existing steps ...
-
-    # Step 8: Adaptive binarization (optional)
-    if self.config.adaptive_binarize:
-        gray = self._adaptive_binarize(gray)
-        result.image = gray
-        result.processing_steps.append("adaptive_binarization")
-
-    return result
+if self.config.adaptive_binarize:
+    gray = self._adaptive_binarize(gray)
+    result.processing_steps.append("adaptive_binarization")
 ```
 
 ---
 
-## Adding a New Output Format
+## Adding Output Formats
 
-### Step 1: Add Format Option
+### Step 1: Update Config
 
-In `src/config.py`:
+In `src/config.py`, the `output_format` field already supports:
+- `png` (default, lossless)
+- `tiff` (lossless)
+- `webp` (smaller files)
 
-```python
-output_format: str = "png"  # Options: png, tiff, webp, jpeg
-```
-
-### Step 2: Handle in Output Generator
+### Step 2: Add New Format
 
 In `src/output_generator.py`:
 
 ```python
-def _save_enhanced(self, image: np.ndarray, path: Path) -> None:
+def _save_image(self, image: np.ndarray, path: Path) -> None:
     ext = path.suffix.lower()
-
     if ext == ".png":
         cv2.imwrite(str(path), image, [cv2.IMWRITE_PNG_COMPRESSION, 6])
-    elif ext == ".tiff":
-        cv2.imwrite(str(path), image)
     elif ext == ".webp":
         cv2.imwrite(str(path), image, [cv2.IMWRITE_WEBP_QUALITY, 100])
     elif ext in (".jpg", ".jpeg"):
@@ -179,73 +161,121 @@ def _save_enhanced(self, image: np.ndarray, path: Path) -> None:
 
 ---
 
-## OCR via LM Studio
+## Customizing OCR
 
-There is a page-level OCR command that sends enhanced images to a local
-LM Studio server (OpenAI-compatible API).
+### Change Model
 
-```bash
-python main.py ocr AS11_TEC.PDF --pages 1-5 --base-url http://localhost:1234 --model qwen3-vl-4b
-```
-
-Output files are written alongside the enhanced images:
-`output/<PDF>/Page_XXX/<PDF>_page_XXXX.txt`
-
-### Block-Level OCR (Future Extension)
-
-If you want block-level OCR (per COMM block), add a dedicated processor
-that crops each block and submits only that region to the OCR engine.
+Edit LM Studio client parameters in `main.py`:
 
 ```python
-# Future: OCR processing
-if self.config.enable_ocr:
-    ocr_result = self.ocr_processor.process(
-        processing_result.image,
-        classification_result
-    )
-    result.ocr = ocr_result
+client = LMStudioOCRClient(
+    base_url=config.ocr_url,
+    model="your-model-name",
+    timeout_s=180,  # Increase for large pages
+    max_tokens=8192,
+)
+```
+
+### Custom Prompt
+
+```python
+from src.ocr_client import LMStudioOCRClient
+
+client = LMStudioOCRClient(
+    base_url="http://localhost:1234",
+    model="qwen3-vl-4b",
+    prompt="Extract text preserving exact layout and spacing.",
+)
+```
+
+### Custom Parser
+
+Create your own parser in `src/ocr_parser.py`:
+
+```python
+def parse_custom_format(text: str, page_num: int) -> list[dict]:
+    """Parse custom OCR output format."""
+    rows = []
+    for line in text.splitlines():
+        if line.startswith("CUSTOM:"):
+            rows.append({
+                "type": "custom",
+                "text": line[7:].strip(),
+            })
+    return rows
 ```
 
 ---
 
-## Testing Extensions
+## Testing
 
-### Unit Test Template
+### Unit Test
 
 ```python
-# tests/test_custom_block.py
-
+# tests/test_layout.py
 import cv2
 from src.layout_detector import LayoutDetector, BlockType
 
-def test_custom_block_detection():
-    """Test that custom blocks are detected from a fixture image."""
-    image = cv2.imread("tests/fixtures/page_with_footnote.png", cv2.IMREAD_GRAYSCALE)
+def test_header_detection():
+    image = cv2.imread("tests/fixtures/page.png", cv2.IMREAD_GRAYSCALE)
     detector = LayoutDetector()
     layout = detector.detect(image)
 
-    assert any(b.block_type == BlockType.FOOTNOTE for b in layout.blocks)
+    headers = [b for b in layout.blocks if b.block_type == BlockType.HEADER]
+    assert len(headers) >= 1
 ```
 
 ### Integration Test
 
 ```python
-# tests/test_pipeline_integration.py
+# tests/test_pipeline.py
+from pathlib import Path
+from src.config import PipelineConfig
+from src.pipeline import TranscriptPipeline
 
-def test_pipeline_with_custom_config():
-    """Test pipeline with custom configuration."""
-    config = PipelineConfig(
-        dpi=200,
-        col1_end=0.12,
-        adaptive_binarize=True
-    )
-
+def test_process_page():
+    config = PipelineConfig(dpi=150)  # Lower DPI for speed
     pipeline = TranscriptPipeline(
-        pdf_path=Path("test.pdf"),
-        output_dir=Path("test_output"),
-        config=config
+        Path("tests/fixtures/test.pdf"),
+        Path("tests/output"),
+        config
     )
-
     result = pipeline.process_page(0)
     assert result.success
+```
+
+---
+
+## Programmatic Usage
+
+```python
+from pathlib import Path
+from src.config import PipelineConfig
+from src.pipeline import TranscriptPipeline
+from src.ocr_client import LMStudioOCRClient
+from src.ocr_parser import parse_ocr_text, build_page_json
+
+# Process images
+config = PipelineConfig(parallel=True, max_workers=8)
+pipeline = TranscriptPipeline(Path("doc.pdf"), Path("output"), config)
+result = pipeline.process_all()
+
+print(f"Processed: {result.successful_pages}/{result.total_pages}")
+
+# Run OCR separately
+client = LMStudioOCRClient(base_url="http://localhost:1234", model="qwen3-vl-4b")
+
+for page_result in result.page_results:
+    if page_result.success:
+        # Read enhanced image
+        import cv2
+        img = cv2.imread(str(page_result.output.enhanced_image), cv2.IMREAD_GRAYSCALE)
+
+        # OCR
+        text = client.ocr_image(img)
+        rows = parse_ocr_text(text, page_result.page_num)
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        json_data = build_page_json(rows, lines, page_result.page_num)
+
+        print(f"Page {page_result.page_num + 1}: {len(json_data['blocks'])} blocks")
 ```

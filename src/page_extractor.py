@@ -12,11 +12,11 @@ For AI Agents:
     - No text extraction or OCR is performed
 """
 
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Optional, Iterator
-import numpy as np
 
 import fitz  # pymupdf
+import numpy as np
 from loguru import logger
 
 from .config import PipelineConfig
@@ -37,7 +37,7 @@ class PageExtractor:
         config: Pipeline configuration
     """
 
-    def __init__(self, pdf_path: Path, config: Optional[PipelineConfig] = None):
+    def __init__(self, pdf_path: Path, config: PipelineConfig | None = None):
         """
         Initialize the page extractor.
 
@@ -133,7 +133,7 @@ class PageExtractor:
     def iter_pages(
         self,
         start: int = 0,
-        end: Optional[int] = None
+        end: int | None = None
     ) -> Iterator[tuple[int, np.ndarray]]:
         """
         Iterate over pages, yielding page number and image.
@@ -223,7 +223,7 @@ def get_pdf_info(pdf_path: Path) -> dict:
         - modification_date: Last modification date
     """
     with fitz.open(pdf_path) as doc:
-        metadata = doc.metadata
+        metadata = doc.metadata or {}
 
         return {
             "page_count": len(doc),

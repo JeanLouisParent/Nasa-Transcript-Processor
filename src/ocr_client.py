@@ -4,18 +4,15 @@ LM Studio OCR client (OpenAI-compatible API).
 Sends enhanced page images to a local LM Studio server and returns OCR text.
 """
 
-from __future__ import annotations
-
-from dataclasses import dataclass
 import base64
 import json
 import urllib.error
 import urllib.request
-from typing import Any
+from dataclasses import dataclass, field
 
 import cv2
 import numpy as np
-
+from loguru import logger
 
 PLAIN_OCR_PROMPT = (
     "You are a precise OCR engine. Extract all visible text from the page image. "
@@ -24,60 +21,45 @@ PLAIN_OCR_PROMPT = (
     "Do not add tags, headers, or commentary."
 )
 
-STRUCTURED_OCR_PROMPT = (
-    "You are a precise OCR engine. Extract all visible text from the page image. "
-    "Preserve reading order top-to-bottom, left-to-right. "
-    "Output one line per logical line using TSV with 4 columns: "
-    "TYPE\\tTIMESTAMP\\tSPEAKER\\tTEXT. "
-    "Type codes: H (header), A (annotation), F (footer), C (comm), T (other). "
-    "For H/A/F/T lines, leave TIMESTAMP and SPEAKER empty but keep tabs. "
-    "Never output an empty TEXT field; use [UNK] if unreadable. "
-    "Do not include a header row or any commentary."
-)
+# Image tokens to try for different vision models
+DEFAULT_IMAGE_TOKENS = [
+    "<|vision_start|><|image_pad|><|vision_end|>",
+    "<|image_pad|>",
+    "<image>",
+    "<img>",
+    "",
+]
 
-SNIPPET_OCR_PROMPT = (
-    "You are a precise OCR engine. Extract the exact characters from the image region. "
-    "Preserve spacing as best as possible. Output plain text only. "
-    "Do not add labels, guesses, or commentary."
-)
+
+class OCRError(Exception):
+    """Base exception for OCR errors."""
+    pass
+
+
+class OCRConnectionError(OCRError):
+    """Connection to OCR server failed."""
+    pass
+
+
+class OCRResponseError(OCRError):
+    """Invalid response from OCR server."""
+    pass
 
 
 @dataclass
 class LMStudioOCRClient:
+    """Client for LM Studio vision models."""
+
     base_url: str
-    model: str
+    model: str = "qwen3-vl-4b"
     timeout_s: int = 120
     max_tokens: int = 4096
     temperature: float = 0.0
     prompt: str = PLAIN_OCR_PROMPT
-    image_mode: str = "auto"
-    image_token: str = "auto"
+    image_tokens: list[str] = field(default_factory=lambda: DEFAULT_IMAGE_TOKENS.copy())
 
-    def _looks_like_ocr(self, text: str, image_token: str) -> bool:
-        if not text or not text.strip():
-            return False
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        if not lines:
-            return False
-        if lines[0].lower().startswith("type\t") and "timestamp" in lines[0].lower():
-            return False
-        if image_token and any(image_token in line for line in lines):
-            return False
-        alpha_count = sum(1 for c in text if c.isalpha())
-        if alpha_count < 10:
-            return False
-        typed = 0
-        with_text = 0
-        for line in lines:
-            if len(line) > 1 and line[0] in "HAFCT" and line[1] == "\t":
-                typed += 1
-                parts = line.split("\t", 3)
-                text_part = parts[3] if len(parts) >= 4 else ""
-                if text_part.strip() and text_part.strip() not in ("<image>", "[UNK]"):
-                    with_text += 1
-        return typed > 0 and with_text > 0
-
-    def _post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def _post_json(self, path: str, payload: dict) -> dict:
+        """POST JSON to the API and return response."""
         url = f"{self.base_url.rstrip('/')}/{path.lstrip('/')}"
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
@@ -85,93 +67,110 @@ class LMStudioOCRClient:
             data=data,
             headers={"Content-Type": "application/json"},
         )
+
         try:
             with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
-                body = resp.read()
+                return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
-            raw = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"HTTP {exc.code}: {raw}") from exc
+            body = exc.read().decode("utf-8", errors="replace")
+            raise OCRResponseError(f"HTTP {exc.code}: {body}") from exc
+        except urllib.error.URLError as exc:
+            raise OCRConnectionError(f"Connection failed: {exc.reason}") from exc
+        except TimeoutError:
+            raise OCRConnectionError(f"Request timed out after {self.timeout_s}s") from None
 
-        return json.loads(body.decode("utf-8"))
+    def _extract_text(self, response: dict) -> str:
+        """Extract text content from API response."""
+        choices = response.get("choices", [])
+        if not choices:
+            raise OCRResponseError(f"Empty response: {response}")
+
+        content = choices[0].get("message", {}).get("content", "")
+
+        # Handle list content (some models return structured content)
+        if isinstance(content, list):
+            parts = [
+                p.get("text", "") for p in content
+                if isinstance(p, dict) and p.get("type") == "text"
+            ]
+            content = "\n".join(parts)
+
+        return str(content).strip()
+
+    def _is_valid_ocr(self, text: str) -> bool:
+        """Check if text looks like valid OCR output."""
+        if not text:
+            return False
+        # Must have some alphabetic content
+        alpha_count = sum(1 for c in text if c.isalpha())
+        return alpha_count >= 2
 
     def ocr_image(self, image: np.ndarray) -> str:
-        success, buffer = cv2.imencode(".png", image)
+        """
+        Perform OCR on an image.
+
+        Args:
+            image: Grayscale or BGR image as numpy array
+
+        Returns:
+            Extracted text
+
+        Raises:
+            OCRError: If OCR fails
+        """
+        # Encode image
+        # Use JPEG with quality 85 to reduce payload size significantly
+        encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), 85]
+        success, buffer = cv2.imencode(".jpg", image, encode_params)
         if not success:
-            raise RuntimeError("Failed to encode image for OCR")
+            raise OCRError("Failed to encode image") from None
 
         b64 = base64.b64encode(buffer.tobytes()).decode("ascii")
-        attempts = []
-        if self.image_mode in ("images", "auto"):
-            if self.image_token == "auto":
-                attempts = [
-                    ("images", "<|vision_start|><|image_pad|><|vision_end|>"),
-                    ("images", "<|image_pad|>"),
-                    ("images", "<image>"),
-                    ("images", "<img>"),
-                    ("images", ""),
-                ]
-            else:
-                attempts = [("images", self.image_token)]
-            attempts.append(("image_url", ""))
-        else:
-            attempts = [("image_url", "")]
 
+        # Try OpenAI-style image_url format first (standard for modern LM Studio/vLLM)
         last_error = None
-        last_text = ""
-        for mode, token in attempts:
+        try:
+            payload = {
+                "model": self.model,
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": self.prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                    ],
+                }],
+            }
+            response = self._post_json("/v1/chat/completions", payload)
+            text = self._extract_text(response)
+            if self._is_valid_ocr(text):
+                logger.debug("OCR successful using standard OpenAI vision format")
+                return text
+        except OCRError as exc:
+            last_error = exc
+
+        # Fallback to manual token injection for older models/backends
+        for token in self.image_tokens:
             try:
-                if mode == "images":
-                    prompt = f"{token}\n{self.prompt}" if token else self.prompt
-                    payload = {
-                        "model": self.model,
-                        "temperature": self.temperature,
-                        "max_tokens": self.max_tokens,
-                        "messages": [{"role": "user", "content": prompt}],
-                        "images": [b64],
-                    }
-                else:
-                    payload = {
-                        "model": self.model,
-                        "temperature": self.temperature,
-                        "max_tokens": self.max_tokens,
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": [
-                                    {"type": "text", "text": self.prompt},
-                                    {
-                                        "type": "image_url",
-                                        "image_url": {"url": f"data:image/png;base64,{b64}"},
-                                    },
-                                ],
-                            }
-                        ],
-                    }
+                prompt = f"{token}\n{self.prompt}" if token else self.prompt
+                payload = {
+                    "model": self.model,
+                    "temperature": self.temperature,
+                    "max_tokens": self.max_tokens,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "images": [b64],
+                }
 
                 response = self._post_json("/v1/chat/completions", payload)
-                choices = response.get("choices", [])
-                if not choices:
-                    last_error = RuntimeError(f"Empty OCR response: {response}")
-                    continue
+                text = self._extract_text(response)
 
-                message = choices[0].get("message", {})
-                content = message.get("content", "")
-                if isinstance(content, list):
-                    parts = []
-                    for part in content:
-                        if isinstance(part, dict) and part.get("type") == "text":
-                            parts.append(part.get("text", ""))
-                    content = "\n".join(parts)
-
-                text = str(content).strip()
-                last_text = text
-                if self._looks_like_ocr(text, token):
+                if self._is_valid_ocr(text):
+                    logger.debug(f"OCR successful using token format: {token!r}")
                     return text
-            except Exception as exc:
+            except OCRError as exc:
                 last_error = exc
 
-        if last_text:
-            return last_text
         if last_error:
-            raise last_error
-        raise RuntimeError("OCR request failed with no response")
+            raise last_error from None
+        raise OCRError("OCR failed: no valid text extracted")

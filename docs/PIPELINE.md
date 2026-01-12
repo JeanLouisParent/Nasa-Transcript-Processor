@@ -1,43 +1,39 @@
 # Pipeline Documentation
 
-This document describes each stage of the image processing pipeline in detail.
+This document describes each stage of the processing pipeline.
 
-## Pipeline Overview
+## Overview
 
 ```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│  Extract    │ → │  Process    │ → │   Detect    │ → │  Classify   │
-│    Page     │    │   Image     │    │   Layout    │    │   Blocks    │
-└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
-                                                               │
-                                                               ▼
-                                                        ┌─────────────┐
-                                                        │  Generate   │
-                                                        │   Output    │
-                                                        └─────────────┘
+┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐
+│ Extract  │ → │ Process  │ → │  Detect  │ → │ Generate │ → │   OCR    │
+│   Page   │   │  Image   │   │  Layout  │   │  Output  │   │ (option) │
+└──────────┘   └──────────┘   └──────────┘   └──────────┘   └──────────┘
 ```
+
+---
 
 ## Stage 1: Page Extraction
 
 **Module**: `page_extractor.py`
 
-### Input
-- PDF file path
-- Page number (0-indexed)
+Extracts individual pages from PDF as high-resolution images.
 
-### Operations
+**Operations**:
 1. Open PDF with pymupdf
 2. Load specific page by index
-3. Create pixmap at target DPI (default: 300)
+3. Render at target DPI (default: 300)
 4. Convert to numpy array (BGR format)
 5. Optionally extract single-page PDF
 
-### Output
+**Output**:
 - `numpy.ndarray`: BGR image at target resolution
-- Single-page PDF file
+- `*_raw.pdf`: Single-page PDF file
 
-### Parameters
-- `dpi`: Resolution (72-600, default: 300)
+**Parameters**:
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `dpi` | 300 | Output resolution (72-600) |
 
 ---
 
@@ -45,97 +41,86 @@ This document describes each stage of the image processing pipeline in detail.
 
 **Module**: `image_processor.py`
 
+Enhances scanned images for better OCR and layout detection.
+
 ### 2.1 Grayscale Conversion
 
 Convert BGR to grayscale for consistent processing.
 
-```python
-gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-```
+### 2.2 Deskew
 
-### 2.2 Deskew (Rotation Correction)
-
-Detect and correct page skew using line detection.
+Detect and correct page rotation using Hough line detection.
 
 **Algorithm**:
-1. Create binary image (Otsu thresholding)
+1. Create binary image (Otsu threshold)
 2. Detect edges (Canny)
 3. Find lines (Probabilistic Hough Transform)
 4. Calculate median angle of near-horizontal lines
-5. Rotate image if angle > threshold
+5. Rotate if angle exceeds threshold
 
 **Parameters**:
-- `deskew_angle_threshold`: Minimum angle to correct (default: 0.5°)
-- `deskew_max_angle`: Maximum expected skew (default: 10°)
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `deskew_angle_threshold` | 0.5° | Minimum angle to correct |
+| `deskew_max_angle` | 10.0° | Maximum expected skew |
 
 ### 2.3 Size Normalization
 
-Standardize page dimensions and margins.
+Standardize page dimensions to Letter size at 300 DPI.
 
 **Algorithm**:
 1. Find content bounding box (non-white pixels)
 2. Crop to content
-3. Scale to fit target area (preserving aspect ratio)
+3. Scale to fit target area (preserve aspect ratio)
 4. Center on canvas with uniform margins
 
 **Parameters**:
-- `target_width`: 2550 px (8.5" at 300 DPI)
-- `target_height`: 3300 px (11" at 300 DPI)
-- `margin_px`: 75 px (~0.25")
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `target_width` | 2550 px | 8.5" at 300 DPI |
+| `target_height` | 3300 px | 11" at 300 DPI |
+| `margin_px` | 75 px | ~0.25" margin |
 
-### 2.4 Contrast Enhancement (CLAHE)
+### 2.4 CLAHE Contrast Enhancement
 
 Improve local contrast using Contrast Limited Adaptive Histogram Equalization.
 
-```python
-clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-enhanced = clahe.apply(image)
-```
-
 **Parameters**:
-- `clahe_clip_limit`: Contrast limit (default: 2.0)
-- `clahe_grid_size`: Tile size (default: 8)
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `clahe_clip_limit` | 2.0 | Contrast limit |
+| `clahe_grid_size` | 8 | Tile size |
 
-### 2.5 Noise Removal (Bilateral Filter)
+### 2.5 Bilateral Noise Removal
 
 Reduce noise while preserving edges.
 
-```python
-denoised = cv2.bilateralFilter(image, d=9, sigmaColor=75, sigmaSpace=75)
-```
-
 **Parameters**:
-- `bilateral_d`: Filter diameter (default: 9)
-- `bilateral_sigma_color`: Color sigma (default: 75)
-- `bilateral_sigma_space`: Space sigma (default: 75)
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `bilateral_d` | 9 | Filter diameter |
+| `bilateral_sigma_color` | 75 | Color sigma |
+| `bilateral_sigma_space` | 75 | Space sigma |
 
-### 2.6 Spot Cleaning (Morphology)
+### 2.6 Spot Cleaning
 
-Remove small artifacts and spots.
+Remove small artifacts using connected component analysis.
 
 **Algorithm**:
-1. Invert image (text = white)
-2. Apply morphological opening (remove small white spots)
-3. Find connected components
-4. Remove components smaller than threshold
-5. Invert back
+1. Threshold to binary (dark pixels = foreground)
+2. Find connected components
+3. Remove components < 15 px² or small squares < 50 px²
+4. Replace with white
+
+### 2.7 Unsharp Mask
+
+Enhance text edges for better readability.
 
 **Parameters**:
-- `morph_kernel_size`: Opening kernel size (default: 2)
-- `noise_max_area`: Maximum noise component area (default: 50 px²)
-
-### 2.7 Text Sharpening (Unsharp Mask)
-
-Enhance text edges and partially faded characters.
-
-```python
-blurred = cv2.GaussianBlur(image, (0, 0), sigma)
-sharpened = cv2.addWeighted(image, 1 + amount, blurred, -amount, 0)
-```
-
-**Parameters**:
-- `unsharp_amount`: Sharpening strength (default: 1.5)
-- `unsharp_sigma`: Blur sigma (default: 1.0)
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `unsharp_amount` | 1.5 | Sharpening strength |
+| `unsharp_sigma` | 1.0 | Blur sigma |
 
 ---
 
@@ -143,145 +128,159 @@ sharpened = cv2.addWeighted(image, 1 + amount, blurred, -amount, 0)
 
 **Module**: `layout_detector.py`
 
+Detects text blocks using geometric analysis (no OCR).
+
 ### 3.1 Binarization
 
-Convert to binary for contour detection.
+Convert to binary using adaptive threshold.
 
 ```python
-binary = cv2.adaptiveThreshold(
-    image, 255,
+binary = cv2.adaptiveThreshold(image, 255,
     cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-    cv2.THRESH_BINARY_INV,
-    blockSize=15, C=5
-)
+    cv2.THRESH_BINARY_INV, blockSize=15, C=5)
 ```
 
 ### 3.2 Text Connection
 
 Connect characters into blocks using morphological dilation.
 
-**Horizontal Dilation** (connect characters in lines):
+**Horizontal** (connect characters in lines):
 ```python
 h_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (50, 1))
-connected = cv2.dilate(binary, h_kernel)
 ```
 
-**Vertical Dilation** (connect lines in blocks):
+**Vertical** (connect lines in blocks):
 ```python
 v_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 10))
-connected = cv2.dilate(connected, v_kernel)
 ```
 
 **Parameters**:
-- `line_kernel_width`: 50 (horizontal connection)
-- `line_kernel_height`: 1
-- `block_kernel_width`: 5 (vertical connection)
-- `block_kernel_height`: 10
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `line_kernel_width` | 50 | Horizontal connection |
+| `line_kernel_height` | 1 | |
+| `block_kernel_width` | 5 | Vertical connection |
+| `block_kernel_height` | 10 | |
 
-### 3.3 Contour Detection
+### 3.3 Block Detection
 
-Find block boundaries.
+Find contours, filter by size, merge overlaps.
 
-```python
-contours, _ = cv2.findContours(
-    connected,
-    cv2.RETR_EXTERNAL,
-    cv2.CHAIN_APPROX_SIMPLE
-)
-```
+**Parameters**:
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `min_block_area` | 1000 px² | Minimum block size |
+| `max_block_area_ratio` | 0.9 | Maximum as ratio of page |
 
-### 3.4 Filtering
+### 3.4 Block Classification
 
-Remove invalid blocks.
+Classify blocks using geometric heuristics.
 
-**Criteria**:
-- Area > `min_block_area` (default: 1000 px²)
-- Area < page_area × `max_block_area_ratio` (default: 0.9)
-- Content density > 1%
+**Block Types**:
+- **HEADER**: Top zone, network/page/tape markers
+- **FOOTER**: Bottom zone, asterisk lines
+- **ANNOTATION**: Centered, isolated vertically
+- **COMM**: Triplet structure (timestamp | speaker | text)
 
-### 3.5 Merging
-
-Merge overlapping blocks.
-
-**Overlap threshold**: 30% of smaller block area
-
-### 3.6 Sorting
-
-Sort in reading order (top-to-bottom, left-to-right).
+**Parameters**:
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `col1_end` | 0.15 | Timestamp/speaker boundary |
+| `col2_end` | 0.30 | Speaker/text boundary |
+| `header_ratio` | 0.10 | Header zone height |
 
 ---
 
-## Stage 4: Layout Detection
-
-**Module**: `layout_detector.py`
-
-This stage groups line regions into rows, detects column boundaries, and
-classifies rows into HEADER, FOOTER, ANNOTATION, and COMM blocks using
-geometric heuristics (no OCR).
-
-### Key Heuristics
-- Column boundaries from vertical ink projection with fallback to defaults when timestamps are sparse.
-- Row clustering merges overlapping regions to avoid duplicate rows.
-- HEADER detection via left/right/center marker geometry; header zone expands
-  down toward the first COMM row when needed, and a fallback ensures at least
-  one header per page.
-- COMM grouping starts on timestamp-like rows; continuation lines follow until
-  a large vertical gap; tiny noise rows are ignored.
-- FOOTER detection uses bottom-zone geometry and column-boundary ink density.
-
-### Parameters
-- `col1_end`: 0.15 (timestamp/speaker boundary)
-- `col2_end`: 0.30 (speaker/text boundary)
-- `header_ratio`: 0.10 (baseline header region height)
-
----
-
-## Stage 5: Output Generation
+## Stage 4: Output Generation
 
 **Module**: `output_generator.py`
+
+Generates output files for each processed page.
 
 ### Files Generated
 
 | File | Description |
 |------|-------------|
-| `<PDF>_page_XXXX_raw.pdf` | Single page extracted from source |
-| `<PDF>_page_XXXX_enhanced.png` | Processed grayscale image |
-| `<PDF>_page_XXXX_blocks.png` | Enhanced image with colored block overlays |
+| `*_raw.pdf` | Single page from source PDF |
+| `*_enhanced.png` | Processed grayscale image |
+| `*_blocks.png` | Image with block overlays |
 
-### Blocks Visualization Colors
+### Block Visualization
 
-| Block Type | Color (BGR) |
-|------------|-------------|
-| HEADER | Blue (255, 150, 50) |
-| FOOTER | Gray (150, 150, 150) |
-| ANNOTATION | Magenta (255, 100, 255) |
-| COMM (outline) | Green (100, 200, 100) |
-| COMM (fill) | Light green (190, 230, 190) |
+| Block Type | Color |
+|------------|-------|
+| HEADER | Blue |
+| FOOTER | Gray |
+| ANNOTATION | Magenta |
+| COMM | Green outline + light green fill |
 
-### Blocks Overlay
-
-- HEADER/FOOTER/ANNOTATION: semi-transparent fill + label
-- COMM: light green fill + outline (no label)
+COMM blocks also show sub-columns:
+- Timestamp: Yellow
+- Speaker: Cyan
+- Text: Red
 
 ---
 
-## Stage 6: OCR (LM Studio)
+## Stage 5: OCR (Optional)
 
-**Module**: `ocr_client.py`
+**Modules**: `ocr_client.py`, `ocr_parser.py`
 
-This stage sends the enhanced page image to a local LM Studio server using
-the OpenAI-compatible API. It produces a per-page raw text file plus a JSON
-with normalized blocks.
+Sends enhanced images to LM Studio for text extraction.
 
-**Command**:
-```bash
-python main.py process AS11_TEC.PDF --pages 1-5 --ocr-url http://localhost:1234
+### OCR Client
+
+Uses OpenAI-compatible API with optimized workflow for speed:
+1. **Compression**: Encodes image as JPEG (85% quality) to minimize payload
+2. **Standard First**: Tries standard OpenAI `image_url` format (fastest)
+3. **Fallback**: Retries with various vision tokens (`<image>`, `<img>`) if standard fails
+4. **Validation**: Checks for minimum alphabetic content (2+ chars) to avoid false negatives
+
+**Configuration**:
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| Model | qwen3-vl-4b | Vision model |
+| Timeout | 120s | Request timeout |
+| Max tokens | 4096 | Response limit |
+
+### OCR Parser
+
+Parses plain text into structured blocks.
+
+**Detection patterns**:
+- Timestamp: `\d{2} \d{2} \d{2} \d{1,2}`
+- Speaker: `[A-Z][A-Z0-9]{1,6}`
+- Header keywords: GOSS, NET, TAPE, PAGE, APOLLO
+
+### Output Format
+
+**JSON** (`*_page_XXXX.json`):
+```json
+{
+  "page": {
+    "number": 42,
+    "tape": "1/2",
+    "apollo": "APOLLO 11 AIR-TO-GROUND VOICE TRANSCRIPTION"
+  },
+  "blocks": [
+    {
+      "type": "comm",
+      "timestamp": "00 00 00 00",
+      "speaker": "CDR",
+      "text": "Roger, Houston."
+    },
+    {
+      "type": "continuation",
+      "text": "We copy."
+    }
+  ]
+}
 ```
 
-**Output**:
-`output/<PDF>/Page_XXX/<PDF>_page_XXXX.json` (per-page OCR blocks)
+**Raw text** (`*_ocr_raw.txt`): Unprocessed OCR output.
 
-The JSON includes page header info plus a list of blocks:
-- `type`
-- `timestamp` and `speaker` for comm blocks (when present)
-- `text`
+### Skip OCR
+
+Use `--no-ocr` to skip this stage:
+```bash
+python main.py process AS11_TEC.PDF --no-ocr
+```

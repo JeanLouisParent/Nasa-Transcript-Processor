@@ -6,14 +6,15 @@ Stores per-mission metadata like PDF file name and page offset.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
+
 import tomllib
 
 
 @dataclass
 class MissionConfig:
     """Parsed mission configuration."""
-    mission: Optional[int] = None
+    mission: int | None = None
     file_name: str = ""
     page_offset: int = 0
     rules: dict[str, Any] = field(default_factory=dict)

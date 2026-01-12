@@ -15,9 +15,9 @@ For AI Agents:
 """
 
 from dataclasses import dataclass
-from typing import Optional
-import numpy as np
+
 import cv2
+import numpy as np
 from loguru import logger
 
 from .config import PipelineConfig
@@ -39,7 +39,7 @@ class ProcessingResult:
     deskew_angle: float = 0.0
     original_size: tuple[int, int] = (0, 0)
     final_size: tuple[int, int] = (0, 0)
-    processing_steps: list[str] = None
+    processing_steps: list[str] | None = None
 
     def __post_init__(self):
         if self.processing_steps is None:
@@ -62,7 +62,7 @@ class ImageProcessor:
         config: Pipeline configuration
     """
 
-    def __init__(self, config: Optional[PipelineConfig] = None):
+    def __init__(self, config: PipelineConfig | None = None):
         """
         Initialize the image processor.
 
@@ -91,6 +91,8 @@ class ImageProcessor:
             image=image.copy(),
             original_size=(image.shape[0], image.shape[1]),
         )
+        if result.processing_steps is None:
+            result.processing_steps = []
 
         # Step 1: Convert to grayscale if needed
         if len(image.shape) == 3:
@@ -178,8 +180,7 @@ class ImageProcessor:
                 threshold=100, minLineLength=100, maxLineGap=10
             )
             if lines is not None:
-                for line in lines:
-                    x1, y1, x2, y2 = line[0]
+                for x1, y1, x2, y2 in lines.reshape(-1, 4):
                     if x2 - x1 != 0:
                         angle = np.arctan2(y2 - y1, x2 - x1) * 180 / np.pi
                         if abs(angle) < self.config.deskew_max_angle:
@@ -190,7 +191,7 @@ class ImageProcessor:
             return image, 0.0
 
         # Use median for robustness
-        median_angle = np.median(line_angles)
+        median_angle = float(np.median(line_angles))
 
         # Very low threshold - correct even small angles (0.1°)
         min_threshold = 0.1
@@ -321,8 +322,8 @@ class ImageProcessor:
         denoised = cv2.medianBlur(image, 3)
 
         # Step 2: Normalize brightness with better white/black points
-        white_point = np.percentile(denoised, 98)
-        black_point = np.percentile(denoised, 2)
+        white_point = np.percentile(denoised.astype(float), 98)
+        black_point = np.percentile(denoised.astype(float), 2)
 
         if white_point > black_point:
             scale = 255.0 / (white_point - black_point)
@@ -390,28 +391,3 @@ class ImageProcessor:
         result[spots_mask == 255] = 255
 
         return result
-
-
-def preprocess_for_layout(image: np.ndarray) -> np.ndarray:
-    """
-    Prepare an image for layout detection.
-
-    Creates a binary image optimized for finding text blocks.
-
-    Args:
-        image: Grayscale image
-
-    Returns:
-        Binary image (0 = background, 255 = content)
-    """
-    # Adaptive thresholding for varying lighting conditions
-    binary = cv2.adaptiveThreshold(
-        image,
-        maxValue=255,
-        adaptiveMethod=cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        thresholdType=cv2.THRESH_BINARY_INV,
-        blockSize=11,
-        C=2
-    )
-
-    return binary

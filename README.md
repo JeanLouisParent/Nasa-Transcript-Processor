@@ -158,6 +158,12 @@ col1_end = 0.15  # Optional override
 - [Pipeline](docs/PIPELINE.md) - Processing stages in detail
 - [Extending](docs/EXTENDING.md) - Adding missions, block types, processing steps
 
+## Lexicon & Assets
+
+The project includes a specialized lexicon generated from Apollo 11 ground truth data to improve OCR accuracy.
+- **Lexicon**: `assets/lexicon/apollo11_lexicon.json`
+- **Source**: The underlying data (`a11tec.csv`) is derived from the official Apollo 11 Technical Transcript: [Apollo Flight Journal](https://apollojournals.org/alsj/a11/a11transcript_tec.html)
+
 ## License
 
 MIT License

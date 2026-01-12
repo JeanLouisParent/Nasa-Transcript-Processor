@@ -119,7 +119,7 @@ def run_ocr_pipeline(
     """
     client = LMStudioOCRClient(
         base_url=config.ocr_url,
-        model="qwen3-vl-4b",
+        model=config.ocr_model,
         timeout_s=120,
         max_tokens=4096,
         prompt=PLAIN_OCR_PROMPT,
@@ -209,12 +209,27 @@ def process(pdf_name: str, pages: str, clean: bool, no_ocr: bool, ocr_url: str, 
         click.echo(f"Error: PDF not found: {pdf_path}", err=True)
         raise SystemExit(1)
 
+    # Load mission config to get layout overrides
+    mission_cfg = load_mission_config(Path("config"), pdf_path.name)
+
     # Create pipeline config
     config = PipelineConfig(
         dpi=global_cfg.dpi,
         parallel=global_cfg.parallel,
         max_workers=global_cfg.workers,
     )
+    
+    # Apply global defaults (from defaults.toml)
+    for key, value in global_cfg.pipeline_defaults.items():
+        if hasattr(config, key):
+            setattr(config, key, value)
+
+    # Apply mission-specific overrides (from missions.toml)
+    for key, value in mission_cfg.layout_overrides.items():
+        if hasattr(config, key):
+            setattr(config, key, value)
+            logger.debug(f"Applied mission override: {key}={value}")
+
     if errors := config.validate():
         for e in errors:
             click.echo(f"Config error: {e}", err=True)

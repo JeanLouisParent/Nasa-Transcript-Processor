@@ -20,6 +20,7 @@ This document describes each stage of the processing pipeline.
 Extracts individual pages from PDF as high-resolution images.
 
 **Operations**:
+
 1. Open PDF with pymupdf
 2. Load specific page by index
 3. Render at target DPI (default: 300)
@@ -27,6 +28,7 @@ Extracts individual pages from PDF as high-resolution images.
 5. Optionally extract single-page PDF
 
 **Output**:
+
 - `numpy.ndarray`: BGR image at target resolution
 - `*_raw.pdf`: Single-page PDF file
 
@@ -52,6 +54,7 @@ Convert BGR to grayscale for consistent processing.
 Detect and correct page rotation using Hough line detection.
 
 **Algorithm**:
+
 1. Create binary image (Otsu threshold)
 2. Detect edges (Canny)
 3. Find lines (Probabilistic Hough Transform)
@@ -69,6 +72,7 @@ Detect and correct page rotation using Hough line detection.
 Standardize page dimensions to Letter size at 300 DPI.
 
 **Algorithm**:
+
 1. Find content bounding box (non-white pixels)
 2. Crop to content
 3. Scale to fit target area (preserve aspect ratio)
@@ -107,6 +111,7 @@ Reduce noise while preserving edges.
 Remove small artifacts using connected component analysis.
 
 **Algorithm**:
+
 1. Threshold to binary (dark pixels = foreground)
 2. Find connected components
 3. Remove components < 15 px² or small squares < 50 px²
@@ -145,11 +150,13 @@ binary = cv2.adaptiveThreshold(image, 255,
 Connect characters into blocks using morphological dilation.
 
 **Horizontal** (connect characters in lines):
+
 ```python
 h_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (50, 1))
 ```
 
 **Vertical** (connect lines in blocks):
+
 ```python
 v_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 10))
 ```
@@ -177,6 +184,7 @@ Find contours, filter by size, merge overlaps.
 Classify blocks using geometric heuristics.
 
 **Block Types**:
+
 - **HEADER**: Top zone, network/page/tape markers
 - **FOOTER**: Bottom zone, asterisk lines
 - **ANNOTATION**: Centered, isolated vertically
@@ -199,22 +207,23 @@ Generates output files for each processed page.
 
 ### Files Generated
 
-| File | Description |
-|------|-------------|
-| `*_raw.pdf` | Single page from source PDF |
-| `*_enhanced.png` | Processed grayscale image |
-| `*_blocks.png` | Image with block overlays |
+| File             | Description                 |
+| ---------------- | --------------------------- |
+| `*_raw.pdf`      | Single page from source PDF |
+| `*_enhanced.png` | Processed grayscale image   |
+| `*_blocks.png`   | Image with block overlays   |
 
 ### Block Visualization
 
-| Block Type | Color |
-|------------|-------|
-| HEADER | Blue |
-| FOOTER | Gray |
-| ANNOTATION | Magenta |
-| COMM | Green outline + light green fill |
+| Block Type | Color                            |
+| ---------- | -------------------------------- |
+| HEADER     | Blue                             |
+| FOOTER     | Gray                             |
+| ANNOTATION | Magenta                          |
+| COMM       | Green outline + light green fill |
 
 COMM blocks also show sub-columns:
+
 - Timestamp: Yellow
 - Speaker: Cyan
 - Text: Red
@@ -230,6 +239,7 @@ Sends enhanced images to LM Studio for text extraction.
 ### OCR Client
 
 Uses OpenAI-compatible API with optimized workflow for speed:
+
 1. **Compression**: Encodes image as JPEG (85% quality) to minimize payload
 2. **Standard First**: Tries standard OpenAI `image_url` format (fastest)
 3. **Fallback**: Retries with various vision tokens (`<image>`, `<img>`) if standard fails
@@ -247,6 +257,7 @@ Uses OpenAI-compatible API with optimized workflow for speed:
 Parses plain text into structured blocks.
 
 **Detection patterns**:
+
 - Timestamp: `\d{2} \d{2} \d{2} \d{1,2}`
 - Speaker: `[A-Z][A-Z0-9]{1,6}`
 - Header keywords: GOSS, NET, TAPE, PAGE, APOLLO
@@ -254,6 +265,7 @@ Parses plain text into structured blocks.
 ### Output Format
 
 **JSON** (`*_page_XXXX.json`):
+
 ```json
 {
   "page": {
@@ -281,6 +293,7 @@ Parses plain text into structured blocks.
 ### Skip OCR
 
 Use `--no-ocr` to skip this stage:
+
 ```bash
 python main.py process AS11_TEC.PDF --no-ocr
 ```

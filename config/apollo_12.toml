@@ -1,6 +1,0 @@
-# Apollo 12 configuration
-mission = 12
-file_name = "AS12_TEC.PDF"
-
-[rules]
-# Reserved for mission-specific rules.

@@ -1,6 +1,0 @@
-# Apollo 14 configuration
-mission = 14
-file_name = "AS14_TEC.PDF"
-
-[rules]
-# Reserved for mission-specific rules.

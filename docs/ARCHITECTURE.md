@@ -251,7 +251,7 @@ PipelineConfig defaults (hardcoded in dataclass)
 GlobalConfig (config/defaults.toml)
        │
        ▼
-MissionConfig (config/apollo_*.toml)
+MissionConfig (config/missions.toml)
        │
        ▼
 CLI arguments (--pages, --no-ocr, --ocr-url, -v)
@@ -264,7 +264,7 @@ ocr_transcript_v2/
 ├── main.py                 # CLI entry point
 ├── config/
 │   ├── defaults.toml       # Global defaults
-│   └── apollo_*.toml       # Mission configs (11 files)
+│   └── missions.toml       # Mission configs (consolidated)
 ├── src/
 │   ├── __init__.py
 │   ├── config.py           # PipelineConfig

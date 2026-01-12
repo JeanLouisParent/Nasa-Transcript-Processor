@@ -1,7 +1,0 @@
-# Apollo 11 configuration
-mission = 11
-file_name = "AS11_TEC.PDF"
-page_offset = -2
-
-[rules]
-# Reserved for mission-specific rules.

@@ -1,6 +1,0 @@
-# Apollo 8 configuration
-mission = 8
-file_name = "AS08_TEC.PDF"
-
-[rules]
-# Reserved for mission-specific rules.

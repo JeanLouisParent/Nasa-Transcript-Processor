@@ -1,6 +1,0 @@
-# Apollo 17 configuration
-mission = 17
-file_name = "AS17_TEC.PDF"
-
-[rules]
-# Reserved for mission-specific rules.

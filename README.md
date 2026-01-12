@@ -107,18 +107,39 @@ python main.py info <PDF>
 
 **Global defaults**: `config/defaults.toml`
 ```toml
+# I/O
 input_dir = "input"
 output_dir = "output"
+
+# OCR Settings
 ocr_url = "http://localhost:1234"
+ocr_model = "qwen3-vl-4b"
+ocr_timeout = 120
+ocr_max_tokens = 4096
+
+# Processing Settings
 dpi = 300
 parallel = true
 workers = 4
+
+# Image Enhancement
+clahe_clip_limit = 2.0
+bilateral_d = 9
+unsharp_amount = 1.5
+deskew_angle_threshold = 0.5
+
+# Layout Detection
+col1_end = 0.15
+col2_end = 0.30
+header_ratio = 0.10
 ```
 
-**Mission configs**: `config/apollo_*.toml`
+**Mission configs**: `config/missions.toml`
 ```toml
+[mission.11]
 file_name = "AS11_TEC.PDF"
 page_offset = 0
+col1_end = 0.15  # Optional override
 ```
 
 ## Requirements

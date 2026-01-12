@@ -1,6 +1,0 @@
-# Apollo 15 configuration
-mission = 15
-file_name = "AS15_TEC.PDF"
-
-[rules]
-# Reserved for mission-specific rules.

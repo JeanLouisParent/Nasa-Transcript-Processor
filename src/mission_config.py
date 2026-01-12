@@ -17,33 +17,46 @@ class MissionConfig:
     mission: int | None = None
     file_name: str = ""
     page_offset: int = 0
-    rules: dict[str, Any] = field(default_factory=dict)
+    layout_overrides: dict[str, Any] = field(default_factory=dict)
 
 
 def load_mission_config(config_dir: Path, pdf_name: str) -> MissionConfig:
     """
-    Load mission configuration for a given PDF name.
+    Load mission configuration for a given PDF name from missions.toml.
 
     Args:
-        config_dir: Directory containing .toml configs
+        config_dir: Directory containing missions.toml
         pdf_name: PDF filename to match against config file_name
     """
-    if not config_dir.exists():
+    missions_file = config_dir / "missions.toml"
+    if not missions_file.exists():
+        return MissionConfig(file_name=pdf_name)
+
+    try:
+        data = tomllib.loads(missions_file.read_text(encoding="utf-8"))
+    except Exception:
         return MissionConfig(file_name=pdf_name)
 
     pdf_name_lower = pdf_name.lower()
-    for path in sorted(config_dir.glob("*.toml")):
-        try:
-            data = tomllib.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        file_name = str(data.get("file_name", "")).strip()
-        if file_name and file_name.lower() == pdf_name_lower:
+    missions = data.get("mission", {})
+
+    for mission_id, conf in missions.items():
+        conf_file_name = str(conf.get("file_name", "")).strip()
+        if conf_file_name and conf_file_name.lower() == pdf_name_lower:
+            # Extract known fields
+            page_offset = int(conf.get("page_offset", 0) or 0)
+            
+            # Collect everything else as layout overrides
+            overrides = {
+                k: v for k, v in conf.items() 
+                if k not in ("file_name", "page_offset")
+            }
+
             return MissionConfig(
-                mission=data.get("mission"),
-                file_name=file_name,
-                page_offset=int(data.get("page_offset", 0) or 0),
-                rules=data.get("rules") or {},
+                mission=int(mission_id),
+                file_name=conf_file_name,
+                page_offset=page_offset,
+                layout_overrides=overrides,
             )
 
     return MissionConfig(file_name=pdf_name)

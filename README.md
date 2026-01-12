@@ -1,6 +1,6 @@
 # NASA Transcript Image Processing Pipeline
 
-Industrial-grade pipeline for processing scanned NASA mission transcripts. Performs page-by-page image enhancement and geometric layout detection **without OCR**.
+Pipeline for processing scanned NASA mission transcripts. Performs page-by-page image enhancement and geometric layout detection, then runs OCR via LM Studio.
 
 ## Features
 
@@ -8,7 +8,7 @@ Industrial-grade pipeline for processing scanned NASA mission transcripts. Perfo
 - **Image enhancement**: Deskew, contrast improvement, noise removal, text sharpening
 - **Geometric layout detection**: Detects text blocks purely by visual/geometric analysis
 - **Block classification**: Identifies headers, annotations, footers, and COMM blocks (no OCR)
-- **Parallel processing**: Multi-threaded for fast processing on multi-core systems
+- **LM Studio OCR**: Sends enhanced pages for page-level text extraction
 - **Extensible**: Configurable for other NASA missions with different layouts
 
 ## Installation
@@ -33,22 +33,23 @@ pip install -r requirements.txt
 mkdir -p input
 
 # Process all pages
-python main.py process AS11_TEC.PDF --output output/
+python main.py process AS11_TEC.PDF
 
 # Process specific page range
-python main.py process AS11_TEC.PDF --pages 1-50 --output output/
+python main.py process AS11_TEC.PDF --pages 1-50
 
 # Process multiple ranges or pages
-python main.py process AS11_TEC.PDF --pages 10,12,14-16 --output output/
+python main.py process AS11_TEC.PDF --pages 10,12,14-16
 
 # Clean previous outputs before processing
-python main.py process AS11_TEC.PDF --pages 1-10 --clean --output output/
+python main.py process AS11_TEC.PDF --pages 1-10 --clean
+
+# Override LM Studio URL
+python main.py process AS11_TEC.PDF --pages 1-5 --ocr-url http://localhost:1234
 
 # Get PDF information
 python main.py info AS11_TEC.PDF
 
-# Show configuration
-python main.py config show
 ```
 
 ## Output Structure
@@ -62,6 +63,7 @@ output/
     │   ├── AS11_TEC_page_0001_raw.pdf       # Original single-page PDF
     │   ├── AS11_TEC_page_0001_enhanced.png  # Processed/enhanced image
     │   └── AS11_TEC_page_0001_blocks.png    # Block overlays
+    │   └── AS11_TEC_page_0001.json          # OCR blocks
     ├── Page_002/
     │   └── ...
 ```
@@ -75,6 +77,9 @@ python main.py process input/AS11_TEC.PDF
 python main.py info input/AS11_TEC.PDF
 ```
 
+Defaults for input/output directories and LM Studio URL live in
+`config/defaults.toml`.
+
 ## CLI Reference
 
 ### process
@@ -85,14 +90,9 @@ Process a PDF document.
 python main.py process <PDF_PATH> [OPTIONS]
 
 Options:
-  -o, --output PATH     Output directory (default: output/)
   -p, --pages RANGE     Page range (e.g., '1-50', '10', or '10,12,14-16')
-  -w, --workers INT     Number of parallel workers (default: 4)
-  --no-parallel         Disable parallel processing
-  --dpi INT             Output resolution (default: 300)
-  --debug               Enable debug mode
   --clean               Remove existing output directory before processing
-  -v, --verbose         Enable verbose output
+  --ocr-url TEXT        LM Studio base URL (overrides config/defaults.toml)
 ```
 
 ### info
@@ -103,35 +103,10 @@ Display PDF metadata.
 python main.py info <PDF_PATH>
 ```
 
-### config
-
-Manage configuration.
-
-```bash
-python main.py config show              # Display default config
-python main.py config save config.yaml  # Save config to file
-python main.py config validate config.yaml  # Validate config file
-```
-
 ## Configuration
 
-Create a custom configuration file for different missions:
-
-```yaml
-# apollo12.yaml
-dpi: 300
-parallel: true
-max_workers: 8
-
-# Column boundaries (adjust for different layouts)
-col1_end: 0.12    # Timestamp column
-col2_end: 0.28    # Speaker column
-header_ratio: 0.08
-
-# Image enhancement
-clahe_clip_limit: 2.5
-bilateral_d: 11
-```
+Global defaults live in `config/defaults.toml`. Mission-specific offsets
+live in `config/*.toml` (for example `config/apollo_11.toml`).
 
 Load in a custom script via `PipelineConfig.from_yaml()` and pass it to
 `TranscriptPipeline` (the CLI does not currently accept a `--config` flag).

@@ -1,0 +1,6 @@
+# Apollo 7 configuration
+mission = 7
+file_name = "AS07_TEC.PDF"
+
+[rules]
+# Reserved for mission-specific rules.

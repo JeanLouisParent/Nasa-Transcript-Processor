@@ -262,3 +262,26 @@ geometric heuristics (no OCR).
 
 - HEADER/FOOTER/ANNOTATION: semi-transparent fill + label
 - COMM: light green fill + outline (no label)
+
+---
+
+## Stage 6: OCR (LM Studio)
+
+**Module**: `ocr_client.py`
+
+This stage sends the enhanced page image to a local LM Studio server using
+the OpenAI-compatible API. It produces a per-page raw text file plus a JSON
+with normalized blocks.
+
+**Command**:
+```bash
+python main.py process AS11_TEC.PDF --pages 1-5 --ocr-url http://localhost:1234
+```
+
+**Output**:
+`output/<PDF>/Page_XXX/<PDF>_page_XXXX.json` (per-page OCR blocks)
+
+The JSON includes page header info plus a list of blocks:
+- `type`
+- `timestamp` and `speaker` for comm blocks (when present)
+- `text`

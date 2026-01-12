@@ -20,7 +20,7 @@ import cv2
 from loguru import logger
 
 from .config import PipelineConfig
-from .layout_detector import Block, BlockType, LayoutResult
+from .layout_detector import Block, BlockType, LayoutResult, SubColumn
 
 
 # Colors (BGR format for OpenCV)
@@ -30,6 +30,9 @@ COLORS = {
     'annotation': (255, 100, 255), # Magenta
     'comm': (100, 200, 100),       # Green (block outline)
     'comm_fill': (190, 230, 190),  # Light green (block fill)
+    'timestamp': (50, 220, 220),   # Yellow
+    'speaker': (220, 220, 50),     # Cyan
+    'text': (100, 100, 255),       # Red
 }
 
 
@@ -125,6 +128,7 @@ class OutputGenerator:
         - HEADER blocks: blue outline
         - ANNOTATION blocks: magenta outline
         - COMM blocks: light green fill + green outline
+        - COMM sub-columns: timestamp (yellow), speaker (cyan), text (red)
         """
         # Convert grayscale to BGR
         if len(enhanced_image.shape) == 2:
@@ -146,6 +150,9 @@ class OutputGenerator:
             elif block.block_type == BlockType.COMM:
                 self._draw_block_fill(blocks_img, block, COLORS['comm_fill'], alpha=0.18)
                 self._draw_block_outline(blocks_img, block, COLORS['comm'], thickness=1)
+                for subcol in block.sub_columns:
+                    color = COLORS.get(subcol.col_type, (180, 180, 180))
+                    self._draw_subcol(blocks_img, subcol, color)
 
         return blocks_img
 
@@ -189,6 +196,28 @@ class OutputGenerator:
         overlay = img.copy()
         cv2.rectangle(overlay, (block.x, block.y), (block.x2, block.y2), color, -1)
         cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
+
+    def _draw_subcol(
+        self,
+        img: np.ndarray,
+        subcol: SubColumn,
+        color: tuple[int, int, int]
+    ) -> None:
+        """Draw a sub-column with semi-transparent fill and small label."""
+        overlay = img.copy()
+        cv2.rectangle(overlay, (subcol.x, subcol.y), (subcol.x2, subcol.y2), color, -1)
+        cv2.addWeighted(overlay, 0.18, img, 0.82, 0, img)
+
+        cv2.rectangle(img, (subcol.x, subcol.y), (subcol.x2, subcol.y2), color, 1)
+
+        label = subcol.col_type[0].upper()
+        if subcol.col_type == 'text':
+            label = 'TX'
+        cv2.putText(
+            img, label,
+            (subcol.x + 2, subcol.y + 12),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1
+        )
 
     def _draw_label(
         self,

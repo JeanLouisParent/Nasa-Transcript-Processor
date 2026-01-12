@@ -64,6 +64,8 @@ class PipelineConfig:
     unsharp_amount: float = 1.5
     unsharp_sigma: float = 1.0
 
+    
+
     # Morphological cleaning
     morph_kernel_size: int = 2
     noise_max_area: int = 50  # Maximum area for noise removal
@@ -84,6 +86,11 @@ class PipelineConfig:
     col1_end: float = 0.15    # End of timestamp column
     col2_end: float = 0.30    # End of speaker column
     header_ratio: float = 0.10  # Header region height ratio
+
+    # Tesseract-assisted header detection (no output text)
+    tesseract_header: bool = True
+    tesseract_header_lang: str = "eng"
+    tesseract_header_psm: int = 6
 
     # Debug settings
     debug: bool = False

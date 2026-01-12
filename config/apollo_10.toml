@@ -1,0 +1,6 @@
+# Apollo 10 configuration
+mission = 10
+file_name = "AS10_TEC.PDF"
+
+[rules]
+# Reserved for mission-specific rules.

@@ -1,0 +1,7 @@
+# Global defaults for the pipeline.
+input_dir = "input"
+output_dir = "output"
+ocr_url = "http://localhost:1234"
+dpi = 300
+parallel = true
+workers = 4

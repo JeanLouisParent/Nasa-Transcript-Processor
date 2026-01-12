@@ -16,6 +16,12 @@ For AI Agents:
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
+import difflib
+import re
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 import numpy as np
 import cv2
 from loguru import logger
@@ -102,6 +108,9 @@ class LayoutDetector:
 
     def __init__(self, config: Optional[PipelineConfig] = None):
         self.config = config or PipelineConfig()
+        self._tesseract_path = None
+        if self.config.tesseract_header:
+            self._tesseract_path = shutil.which("tesseract")
 
     def detect(self, image: np.ndarray) -> LayoutResult:
         """Detect layout blocks in an image."""
@@ -280,6 +289,16 @@ class LayoutDetector:
                 int(h * 0.35),
                 max(header_marker_default, int(first_comm_y - line_spacing * 0.3))
             )
+        header_ocr_match = False
+        if self._tesseract_path:
+            header_band_y2 = max(int(h * 0.12), min(header_marker_threshold, int(h * 0.35)))
+            header_crop = image[:header_band_y2, :]
+            header_text = self._tesseract_text(
+                header_crop,
+                lang=self.config.tesseract_header_lang,
+                psm=self.config.tesseract_header_psm
+            )
+            header_ocr_match = self._header_text_matches(header_text)
 
         footer_gap_threshold = max(line_spacing * 1.5, 50)
         footer_boundary_gap = max(line_spacing * 0.3, 15)
@@ -432,7 +451,10 @@ class LayoutDetector:
             comm_rows.append(row)
 
         if not header_rows:
-            header_limit = min(header_marker_threshold, int(h * 0.2))
+            if header_ocr_match:
+                header_limit = header_marker_threshold
+            else:
+                header_limit = min(header_marker_threshold, int(h * 0.2))
             fallback_rows = []
             prev_y2 = None
             for row in rows:
@@ -975,6 +997,75 @@ class LayoutDetector:
             ))
 
         return subcols
+
+    def _normalize_header_text(self, text: str) -> str:
+        if not text:
+            return ""
+        cleaned = text.upper()
+        cleaned = re.sub(r"[^A-Z0-9 ]", " ", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return cleaned
+
+    def _token_fuzzy_match(self, token: str, tokens: list[str], threshold: float = 0.8) -> bool:
+        for candidate in tokens:
+            if token == candidate:
+                return True
+            if difflib.SequenceMatcher(None, token, candidate).ratio() >= threshold:
+                return True
+        return False
+
+    def _header_text_matches(self, text: str) -> bool:
+        normalized = self._normalize_header_text(text)
+        if not normalized:
+            return False
+        tokens = normalized.split()
+        if self._token_fuzzy_match("GOSS", tokens) and self._token_fuzzy_match("NET", tokens):
+            return True
+        if self._token_fuzzy_match("TAPE", tokens) and self._token_fuzzy_match("PAGE", tokens):
+            return True
+        if self._token_fuzzy_match("APOLLO", tokens) and (
+            self._token_fuzzy_match("AIR", tokens) and self._token_fuzzy_match("GROUND", tokens)
+        ):
+            return True
+        if self._token_fuzzy_match("VOICE", tokens) and self._token_fuzzy_match("TRANSCRIPTION", tokens):
+            return True
+        return False
+
+    def _tesseract_text(self, image: np.ndarray, lang: str, psm: int) -> str:
+        if not self._tesseract_path:
+            return ""
+        if image.size == 0:
+            return ""
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir)
+            input_path = work_dir / "header.png"
+            output_base = work_dir / "header_out"
+            cv2.imwrite(str(input_path), gray)
+            cmd = [
+                self._tesseract_path,
+                str(input_path),
+                str(output_base),
+                "-l",
+                lang,
+                "--oem",
+                "1",
+                "--psm",
+                str(psm),
+                "-c",
+                "preserve_interword_spaces=1",
+            ]
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if result.returncode != 0:
+                return ""
+            output_path = Path(f"{output_base}.txt")
+            if not output_path.exists():
+                return ""
+            return output_path.read_text(encoding="utf-8")
 
     def _row_has_content(
         self,

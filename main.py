@@ -6,10 +6,10 @@ This module provides the command-line interface for processing NASA
 mission transcript PDFs.
 
 Usage:
-    python main.py process AS11_TEC.PDF --output output/
-    python main.py process AS11_TEC.PDF --pages 1-50 --output output/
+    python main.py process AS11_TEC.PDF
+    python main.py process AS11_TEC.PDF --pages 1-50
+    python main.py process AS11_TEC.PDF --ocr-url http://localhost:1234
     python main.py info AS11_TEC.PDF
-    python main.py config show
 
 For AI Agents:
     - Main entry point for the pipeline
@@ -18,9 +18,11 @@ For AI Agents:
     - Parallel processing enabled by default
 """
 
-import os
 import sys
 import shutil
+import time
+import json
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -30,35 +32,28 @@ from loguru import logger
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.config import PipelineConfig, DEFAULT_CONFIG
+from src.config import PipelineConfig
+from src.image_processor import ImageProcessor
+from src.layout_detector import LayoutDetector
+from src.ocr_client import (
+    LMStudioOCRClient,
+    PLAIN_OCR_PROMPT,
+)
+from src.output_generator import OutputGenerator
 from src.page_extractor import get_pdf_info
+from src.page_extractor import PageExtractor
 from src.pipeline import TranscriptPipeline
+from src.mission_config import load_mission_config
+from src.global_config import load_global_config
 
 
-def setup_logging(verbose: bool = False, debug: bool = False) -> None:
-    """
-    Configure logging for the CLI.
-
-    Args:
-        verbose: Enable verbose output
-        debug: Enable debug-level logging
-    """
-    # Remove default handler
+def setup_logging() -> None:
+    """Configure logging for the CLI."""
     logger.remove()
-
-    # Set level based on flags
-    if debug:
-        level = "DEBUG"
-    elif verbose:
-        level = "INFO"
-    else:
-        level = "WARNING"
-
-    # Add console handler with formatting
     logger.add(
         sys.stderr,
         format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-        level=level,
+        level="WARNING",
         colorize=True
     )
 
@@ -162,6 +157,335 @@ def resolve_output_dir(base_output: Path, pdf_stem: str) -> Path:
     return base_output / pdf_stem
 
 
+def run_ocr(
+    pdf_name: str,
+    global_config,
+    clean: bool,
+    pages: Optional[str],
+    base_url: Optional[str]
+) -> None:
+    """Run OCR via LM Studio with the simplified defaults."""
+    setup_logging()
+
+    input_dir = global_config.input_dir
+    output = global_config.output_dir
+    dpi = global_config.dpi
+    base_url = base_url or global_config.ocr_url
+
+    pdf_path = resolve_pdf_path(pdf_name, input_dir)
+    if not pdf_path.exists():
+        click.echo(f"Error: PDF not found: {pdf_path}", err=True)
+        raise click.Abort()
+
+    config = PipelineConfig(
+        dpi=dpi,
+        parallel=False,
+        max_workers=1,
+        debug=False
+    )
+
+    extractor = PageExtractor(pdf_path, config)
+    processor = ImageProcessor(config)
+    output_dir = resolve_output_dir(output, pdf_path.stem)
+    if clean and output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    layout_detector = LayoutDetector(config)
+    output_generator = OutputGenerator(output_dir, pdf_path.stem, config)
+    mission_config = load_mission_config(Path("config"), pdf_path.name)
+    page_offset = mission_config.page_offset
+    if pages:
+        page_numbers = parse_pages(pages, extractor.page_count)
+        if not page_numbers:
+            click.echo("No valid pages to process.", err=True)
+            raise click.Abort()
+        click.echo(
+            f"OCR {len(page_numbers)} pages "
+            f"(from {page_numbers[0] + 1} to {page_numbers[-1] + 1}) "
+            f"of {extractor.page_count}"
+        )
+    else:
+        page_numbers = list(range(extractor.page_count))
+        click.echo(f"OCR all {extractor.page_count} pages")
+
+    client = LMStudioOCRClient(
+        base_url=base_url,
+        model="qwen3-vl-4b",
+        timeout_s=120,
+        max_tokens=4096,
+        prompt=PLAIN_OCR_PROMPT,
+        image_mode="auto",
+        image_token="auto"
+    )
+
+    total_start = time.perf_counter()
+    failures = 0
+
+    for page_num in page_numbers:
+        page_start = time.perf_counter()
+        image = extractor.extract_page_image(page_num)
+        enhanced = processor.process(image).image
+
+        page_dir = output_generator.get_page_dir(page_num)
+        page_id = f"{pdf_path.stem}_page_{page_num + 1:04d}"
+        raw_path = page_dir / f"{page_id}_ocr_raw.txt"
+        json_path = page_dir / f"{page_id}.json"
+        layout = layout_detector.detect(enhanced)
+        output_generator.generate(page_num, enhanced, layout)
+
+        try:
+            text = client.ocr_image(enhanced)
+            raw_path.write_text(text + "\n", encoding="utf-8")
+            raw_lines = [line.strip("\r").strip() for line in text.splitlines()]
+            raw_lines = [line for line in raw_lines if line]
+            rows = parse_ocr_output_plain(text, page_num)
+            payload = build_page_json(rows, raw_lines, page_num, page_offset=page_offset)
+            json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        except Exception as exc:
+            failures += 1
+            raw_path.write_text(f"[OCR_ERROR] {exc}\n", encoding="utf-8")
+            payload = {
+                "page": {"number": page_num + 1 + page_offset},
+                "blocks": [],
+                "error": str(exc),
+            }
+            json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+        elapsed = time.perf_counter() - page_start
+        click.echo(f"Page {page_num + 1}/{extractor.page_count} in {format_duration(elapsed)}")
+
+    total_elapsed = time.perf_counter() - total_start
+    avg = total_elapsed / max(1, len(page_numbers))
+    estimate = avg * extractor.page_count
+
+    click.echo("")
+    click.echo("OCR Complete")
+    click.echo(f"Processed: {len(page_numbers)} pages")
+    click.echo(f"Failed: {failures}")
+    click.echo(f"Total time: {format_duration(total_elapsed)}")
+    click.echo(f"Average per page: {avg:.2f}s")
+    click.echo(f"Estimated full run ({extractor.page_count} pages): {format_duration(estimate)}")
+    click.echo(f"Output: {output_dir}")
+
+
+def format_duration(seconds: float) -> str:
+    """Format seconds as H:MM:SS."""
+    total = int(round(seconds))
+    hours = total // 3600
+    minutes = (total % 3600) // 60
+    secs = total % 60
+    if hours > 0:
+        return f"{hours}h{minutes:02d}m{secs:02d}s"
+    if minutes > 0:
+        return f"{minutes}m{secs:02d}s"
+    return f"{secs}s"
+
+
+TIMESTAMP_LINE_RE = re.compile(r"^\d{2}\s+\d{2}\s+\d{2}\s+\d{1,2}$")
+TIMESTAMP_PREFIX_RE = re.compile(r"^(\d{2}\s+\d{2}\s+\d{2}\s+\d{1,2})\b")
+SPEAKER_LINE_RE = re.compile(r"^[A-Z][A-Z0-9]{1,6}(?:\s*\([A-Z0-9]+\))?$")
+SPEAKER_PAREN_RE = re.compile(r"^\([A-Z0-9]+\)$")
+HEADER_PAGE_RE = re.compile(r"\bPAGE\s*(\d{1,4})\b", re.IGNORECASE)
+HEADER_TAPE_RE = re.compile(r"\bTAPE\s*([0-9]{1,2}\s*/\s*[0-9]{1,2})\b", re.IGNORECASE)
+HEADER_APOLLO_KEYS = ("APOLLO", "AIR", "GROUND", "VOICE", "TRANSCRIPTION")
+
+
+def normalize_header_line(line: str) -> str:
+    return re.sub(r"\s+", " ", line).strip()
+
+
+def extract_header_metadata(raw_lines: list[str], page_num: int, page_offset: int) -> dict:
+    header = {"number": page_num + 1 + page_offset, "tape": "", "apollo": ""}
+
+    first_ts_idx = None
+    for idx, line in enumerate(raw_lines):
+        if TIMESTAMP_LINE_RE.match(line) or TIMESTAMP_PREFIX_RE.match(line):
+            first_ts_idx = idx
+            break
+
+    if first_ts_idx is None:
+        header_lines = raw_lines[:10]
+    else:
+        header_lines = raw_lines[: first_ts_idx + 1]
+
+    apollo_parts: list[str] = []
+    for line in header_lines:
+        if not line:
+            continue
+        if TIMESTAMP_PREFIX_RE.match(line):
+            continue
+        normalized = normalize_header_line(line)
+        if not normalized:
+            continue
+        page_match = HEADER_PAGE_RE.search(normalized)
+        if page_match:
+            header["number"] = int(page_match.group(1))
+        tape_match = HEADER_TAPE_RE.search(normalized)
+        if tape_match:
+            header["tape"] = tape_match.group(1).replace(" ", "")
+        upper = normalized.upper()
+        if any(key in upper for key in HEADER_APOLLO_KEYS):
+            apollo_parts.append(normalized)
+
+    if apollo_parts:
+        apollo_text = normalize_header_line(" ".join(apollo_parts))
+        if "APOLLO" in apollo_text.upper():
+            header["apollo"] = apollo_text
+
+    return header
+
+
+def build_page_json(rows: list[dict], raw_lines: list[str], page_num: int, page_offset: int) -> dict:
+    page_info = extract_header_metadata(raw_lines, page_num, page_offset)
+    blocks = []
+
+    for row in rows:
+        if row["type"] == "header":
+            normalized = normalize_header_line(row["text"])
+            if normalized:
+                page_match = HEADER_PAGE_RE.search(normalized)
+                if page_match:
+                    page_info["number"] = int(page_match.group(1))
+                tape_match = HEADER_TAPE_RE.search(normalized)
+                if tape_match:
+                    page_info["tape"] = tape_match.group(1).replace(" ", "")
+                upper = normalized.upper()
+                if "APOLLO" in upper and "AIR" in upper:
+                    page_info["apollo"] = normalized
+            continue
+
+        block_type = row["type"]
+        if block_type == "text":
+            block_type = "continuation"
+
+        block = {"type": block_type}
+        if block_type == "comm":
+            if row["timestamp"]:
+                block["timestamp"] = row["timestamp"]
+            if row["speaker"]:
+                block["speaker"] = row["speaker"]
+            if row["text"]:
+                block["text"] = row["text"]
+        else:
+            if row["text"]:
+                block["text"] = row["text"]
+        blocks.append(block)
+
+    return {"page": page_info, "blocks": blocks}
+
+
+def parse_ocr_output_plain(text: str, page_num: int) -> list[dict]:
+    """Parse plain OCR output into rows using simple heuristics."""
+    raw_lines = [line.strip("\r").strip() for line in text.splitlines()]
+    raw_lines = [line for line in raw_lines if line]
+
+    first_ts_idx = None
+    for idx, line in enumerate(raw_lines):
+        if TIMESTAMP_LINE_RE.match(line) or TIMESTAMP_PREFIX_RE.match(line):
+            first_ts_idx = idx
+            break
+
+    header_keywords = ("GOSS", "NET", "TAPE", "PAGE", "APOLLO", "AIR-TO-GROUND")
+    rows = []
+    line_index = 0
+    pending_ts = ""
+    pending_speaker = ""
+    pending_text_lines: list[str] = []
+
+    def flush_comm() -> None:
+        nonlocal pending_ts, pending_speaker, pending_text_lines, line_index
+        if not pending_ts and not pending_speaker and not pending_text_lines:
+            return
+        line_index += 1
+        rows.append({
+            "page": page_num + 1,
+            "line": line_index,
+            "type": "comm" if pending_ts else "text",
+            "timestamp": pending_ts,
+            "speaker": pending_speaker,
+            "text": " ".join(pending_text_lines).strip(),
+        })
+        pending_ts = ""
+        pending_speaker = ""
+        pending_text_lines = []
+
+    for idx, line in enumerate(raw_lines):
+        upper = line.upper()
+        is_header = (
+            first_ts_idx is not None
+            and idx <= first_ts_idx
+            and not TIMESTAMP_PREFIX_RE.match(line)
+            and any(key in upper for key in header_keywords)
+        )
+        is_footer = "***" in line or "ASTERISK" in upper
+        is_annotation = "(REV" in upper
+
+        if is_header or is_footer or is_annotation:
+            flush_comm()
+            line_index += 1
+            rows.append({
+                "page": page_num + 1,
+                "line": line_index,
+                "type": "header" if is_header else ("footer" if is_footer else "annotation"),
+                "timestamp": "",
+                "speaker": "",
+                "text": line,
+            })
+            continue
+
+        if TIMESTAMP_LINE_RE.match(line):
+            flush_comm()
+            pending_ts = line
+            pending_speaker = ""
+            pending_text_lines = []
+            continue
+
+        prefix_match = TIMESTAMP_PREFIX_RE.match(line)
+        if prefix_match:
+            flush_comm()
+            pending_ts = prefix_match.group(1)
+            remainder = line[len(pending_ts):].strip()
+            pending_speaker = ""
+            pending_text_lines = []
+            if remainder:
+                tokens = remainder.split()
+                if tokens and SPEAKER_LINE_RE.match(tokens[0]):
+                    pending_speaker = tokens[0]
+                    tokens = tokens[1:]
+                    if tokens and SPEAKER_PAREN_RE.match(tokens[0]):
+                        pending_speaker = f"{pending_speaker} {tokens[0]}".strip()
+                        tokens = tokens[1:]
+                if tokens:
+                    pending_text_lines.append(" ".join(tokens))
+            continue
+
+        if pending_ts:
+            if SPEAKER_LINE_RE.match(line):
+                if pending_speaker:
+                    pending_speaker = f"{pending_speaker} {line}".strip()
+                else:
+                    pending_speaker = line
+                continue
+            if SPEAKER_PAREN_RE.match(line):
+                pending_speaker = f"{pending_speaker} {line}".strip() if pending_speaker else line
+                continue
+            pending_text_lines.append(line)
+            continue
+
+        line_index += 1
+        rows.append({
+            "page": page_num + 1,
+            "line": line_index,
+            "type": "text",
+            "timestamp": "",
+            "speaker": "",
+            "text": line,
+        })
+
+    flush_comm()
+    return rows
+
+
 @click.group()
 @click.version_option(version="1.0.0", prog_name="nasa-transcript")
 def cli():
@@ -177,46 +501,10 @@ def cli():
 @cli.command()
 @click.argument("pdf_name", type=str)
 @click.option(
-    "--input-dir",
-    type=click.Path(path_type=Path),
-    default=Path("input"),
-    help="Input directory for PDFs (default: input/)"
-)
-@click.option(
-    "--output", "-o",
-    type=click.Path(path_type=Path),
-    default=Path("output"),
-    help="Output directory (default: output/)"
-)
-@click.option(
     "--pages", "-p",
     type=str,
     default=None,
     help="Page range to process (e.g., '1-50', '10', or '10,12,14-16'). Default: all pages."
-)
-@click.option(
-    "--workers", "-w",
-    type=int,
-    default=4,
-    help="Number of parallel workers (default: 4)"
-)
-@click.option(
-    "--no-parallel",
-    is_flag=True,
-    default=False,
-    help="Disable parallel processing"
-)
-@click.option(
-    "--dpi",
-    type=int,
-    default=300,
-    help="Output resolution in DPI (default: 300)"
-)
-@click.option(
-    "--debug",
-    is_flag=True,
-    default=False,
-    help="Enable debug mode with verbose logging"
 )
 @click.option(
     "--clean",
@@ -225,22 +513,16 @@ def cli():
     help="Remove existing output directory before processing"
 )
 @click.option(
-    "--verbose", "-v",
-    is_flag=True,
-    default=False,
-    help="Enable verbose output"
+    "--ocr-url",
+    type=str,
+    default=None,
+    help="LM Studio base URL (overrides config/defaults.toml)"
 )
 def process(
     pdf_name: str,
-    input_dir: Path,
-    output: Path,
     pages: Optional[str],
-    workers: int,
-    no_parallel: bool,
-    dpi: int,
-    debug: bool,
     clean: bool,
-    verbose: bool
+    ocr_url: Optional[str]
 ):
     """
     Process a PDF document.
@@ -249,9 +531,15 @@ def process(
     and generates output files.
 
     Example:
-        python main.py process AS11_TEC.PDF --pages 1-10 --output ./results
+        python main.py process AS11_TEC.PDF --pages 1-10
     """
-    setup_logging(verbose=verbose, debug=debug)
+    setup_logging()
+
+    defaults_path = Path("config/defaults.toml")
+    global_cfg = load_global_config(defaults_path)
+    input_dir = global_cfg.input_dir
+    output = global_cfg.output_dir
+    ocr_url = ocr_url or global_cfg.ocr_url
 
     # Resolve PDF path
     pdf_path = resolve_pdf_path(pdf_name, input_dir)
@@ -261,10 +549,10 @@ def process(
 
     # Create configuration
     config = PipelineConfig(
-        dpi=dpi,
-        parallel=not no_parallel,
-        max_workers=workers,
-        debug=debug
+        dpi=global_cfg.dpi,
+        parallel=global_cfg.parallel,
+        max_workers=global_cfg.workers,
+        debug=False
     )
 
     # Validate configuration
@@ -305,8 +593,8 @@ def process(
 
     # Show configuration
     click.echo(f"Output directory: {output_dir}")
-    click.echo(f"DPI: {dpi}")
-    click.echo(f"Parallel: {not no_parallel} (workers: {workers})")
+    click.echo(f"DPI: {config.dpi}")
+    click.echo(f"Parallel: {config.parallel} (workers: {config.max_workers})")
     click.echo("")
 
     # Run pipeline
@@ -338,16 +626,18 @@ def process(
     if result.failed_pages > 0:
         sys.exit(1)
 
+    run_ocr(
+        pdf_name=str(pdf_path),
+        global_config=global_cfg,
+        clean=False,
+        pages=pages,
+        base_url=ocr_url
+    )
+
 
 @cli.command()
 @click.argument("pdf_name", type=str)
-@click.option(
-    "--input-dir",
-    type=click.Path(path_type=Path),
-    default=Path("input"),
-    help="Input directory for PDFs (default: input/)"
-)
-def info(pdf_name: str, input_dir: Path):
+def info(pdf_name: str):
     """
     Display information about a PDF document.
 
@@ -355,7 +645,9 @@ def info(pdf_name: str, input_dir: Path):
     """
     setup_logging()
 
-    pdf_path = resolve_pdf_path(pdf_name, input_dir)
+    defaults_path = Path("config/defaults.toml")
+    global_cfg = load_global_config(defaults_path)
+    pdf_path = resolve_pdf_path(pdf_name, global_cfg.input_dir)
     if not pdf_path.exists():
         click.echo(f"Error: PDF not found: {pdf_path}", err=True)
         raise click.Abort()
@@ -370,86 +662,6 @@ def info(pdf_name: str, input_dir: Path):
     click.echo(f"Producer: {pdf_info['producer'] or '(none)'}")
     click.echo(f"Created: {pdf_info['creation_date'] or '(none)'}")
     click.echo(f"Modified: {pdf_info['modification_date'] or '(none)'}")
-
-
-@cli.group()
-def config():
-    """
-    Configuration management commands.
-    """
-    pass
-
-
-@config.command("show")
-def config_show():
-    """
-    Display current default configuration.
-    """
-    setup_logging()
-
-    click.echo("Default Configuration")
-    click.echo("=" * 40)
-
-    config = DEFAULT_CONFIG
-
-    click.echo(f"DPI: {config.dpi}")
-    click.echo(f"Output format: {config.output_format}")
-    click.echo(f"Parallel: {config.parallel}")
-    click.echo(f"Max workers: {config.max_workers}")
-    click.echo("")
-    click.echo(f"Target size: {config.target_width}x{config.target_height} px")
-    click.echo(f"Margin: {config.margin_px} px")
-    click.echo("")
-    click.echo(f"CLAHE clip limit: {config.clahe_clip_limit}")
-    click.echo(f"Bilateral filter d: {config.bilateral_d}")
-    click.echo("")
-    click.echo(f"Min block area: {config.min_block_area}")
-    click.echo(f"Max block area ratio: {config.max_block_area_ratio}")
-    click.echo("")
-    click.echo(f"Column boundaries: {config.col1_end}, {config.col2_end}")
-    click.echo(f"Header ratio: {config.header_ratio}")
-
-
-@config.command("save")
-@click.argument("output_path", type=click.Path(path_type=Path))
-def config_save(output_path: Path):
-    """
-    Save default configuration to a YAML file.
-
-    This creates a configuration file that can be customized
-    for different missions.
-    """
-    setup_logging()
-
-    config = DEFAULT_CONFIG
-    config.to_yaml(output_path)
-
-    click.echo(f"Configuration saved to: {output_path}")
-
-
-@config.command("validate")
-@click.argument("config_path", type=click.Path(exists=True, path_type=Path))
-def config_validate(config_path: Path):
-    """
-    Validate a configuration YAML file.
-    """
-    setup_logging()
-
-    try:
-        config = PipelineConfig.from_yaml(config_path)
-        errors = config.validate()
-
-        if errors:
-            click.echo("Configuration errors:", err=True)
-            for error in errors:
-                click.echo(f"  - {error}", err=True)
-            sys.exit(1)
-        else:
-            click.echo("Configuration is valid.")
-
-    except Exception as e:
-        click.echo(f"Error loading configuration: {e}", err=True)
-        sys.exit(1)
 
 
 if __name__ == "__main__":

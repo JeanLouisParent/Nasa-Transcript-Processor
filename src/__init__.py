@@ -2,17 +2,18 @@
 NASA Transcript Image Processing Pipeline
 
 Industrial-grade pipeline for processing scanned NASA mission transcripts.
-Performs page-by-page image enhancement and geometric layout detection
-without OCR.
+Performs page-by-page image enhancement and geometric layout detection,
+with optional OCR via LM Studio.
 
 Modules:
     config: Pipeline configuration
     page_extractor: PDF to image extraction
     image_processor: Deskew, enhancement, normalization
     layout_detector: Geometric block detection
-    block_classifier: Block type classification
+    block_classifier: Legacy block classifier
     output_generator: Output file generation
     pipeline: Main orchestrator
+    ocr_client: LM Studio OCR client
 """
 
 __version__ = "1.0.0"

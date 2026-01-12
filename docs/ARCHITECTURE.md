@@ -133,6 +133,16 @@ This document describes the architecture of the NASA Transcript Processing Pipel
 - Add new output formats
 - Modify blocks visualization
 
+### ocr_client.py
+**Purpose**: Optional OCR via LM Studio
+
+**Key Classes**:
+- `LMStudioOCRClient`: OpenAI-compatible client for page OCR
+
+**Notes**:
+- Sends enhanced page images to a local LM Studio server.
+- Used by the `ocr` CLI command for page-level text extraction.
+
 ### pipeline.py
 **Purpose**: Orchestrate complete processing
 

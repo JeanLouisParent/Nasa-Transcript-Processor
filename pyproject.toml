@@ -7,11 +7,9 @@ name = "nasa-transcript-processor"
 version = "1.0.0"
 description = "Industrial image processing pipeline for NASA mission transcripts"
 readme = "README.md"
-license = {text = "MIT"}
+license = { text = "MIT" }
 requires-python = ">=3.10"
-authors = [
-    {name = "NASA Transcript Processing Team"}
-]
+authors = [{ name = "NASA Transcript Processing Team" }]
 keywords = ["nasa", "apollo", "transcript", "ocr", "image-processing", "pdf"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -35,12 +33,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "black>=23.0.0",
-    "ruff>=0.1.0",
-]
+dev = ["pytest>=7.0.0", "pytest-cov>=4.0.0", "black>=23.0.0", "ruff>=0.1.0"]
 
 [project.scripts]
 nasa-transcript = "main:cli"

@@ -179,64 +179,22 @@ def _save_enhanced(self, image: np.ndarray, path: Path) -> None:
 
 ---
 
-## Adding OCR (Future Extension)
+## OCR via LM Studio
 
-The pipeline is designed to support OCR as a post-processing step:
+There is a page-level OCR command that sends enhanced images to a local
+LM Studio server (OpenAI-compatible API).
 
-### Suggested Architecture
-
-```python
-# src/ocr_processor.py (future)
-
-from dataclasses import dataclass
-from typing import Optional
-import numpy as np
-
-@dataclass
-class OCRResult:
-    text: str
-    confidence: float
-    bounding_box: tuple[int, int, int, int]
-
-class OCRProcessor:
-    """
-    OCR processor for extracting text from classified blocks.
-
-    This is a future extension point. The geometric layout detection
-    should be completed first to provide clean, classified blocks
-    for OCR processing.
-    """
-
-    def __init__(self, engine: str = "tesseract"):
-        self.engine = engine
-
-    def process_block(
-        self,
-        image: np.ndarray,
-        block: "ClassifiedBlock"
-    ) -> OCRResult:
-        """
-        Extract text from a single block.
-
-        Args:
-            image: Full page image
-            block: Classified block with bounding box
-
-        Returns:
-            OCRResult with extracted text
-        """
-        # Crop block region
-        region = image[block.y:block.y2, block.x:block.x2]
-
-        # Apply OCR (implementation depends on engine)
-        # ...
-
-        return OCRResult(text="", confidence=0.0, bounding_box=block.block.as_rect())
+```bash
+python main.py ocr AS11_TEC.PDF --pages 1-5 --base-url http://localhost:1234 --model qwen3-vl-4b
 ```
 
-### Integration Point
+Output files are written alongside the enhanced images:
+`output/<PDF>/Page_XXX/<PDF>_page_XXXX.txt`
 
-In `pipeline.py`, add after classification:
+### Block-Level OCR (Future Extension)
+
+If you want block-level OCR (per COMM block), add a dedicated processor
+that crops each block and submits only that region to the OCR engine.
 
 ```python
 # Future: OCR processing

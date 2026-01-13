@@ -247,7 +247,8 @@ def build_page_json(
     lines: list[str], 
     page_num: int, 
     page_offset: int = 0,
-    valid_speakers: list[str] = None
+    valid_speakers: list[str] = None,
+    text_replacements: dict[str, str] = None
 ) -> dict:
     """
     Build structured JSON output for a page.
@@ -258,6 +259,7 @@ def build_page_json(
         page_num: 0-indexed page number
         page_offset: Page number offset
         valid_speakers: Optional list of valid speaker codes for correction
+        text_replacements: Optional dictionary of regex replacements for text
 
     Returns:
         Dictionary with header info and blocks
@@ -297,7 +299,7 @@ def build_page_json(
     # TODO: Make lexicon path configurable via mission config if needed
     lexicon_path = Path("assets/lexicon/apollo11_lexicon.json")
     if lexicon_path.exists():
-        txt_corrector = TextCorrector(lexicon_path)
+        txt_corrector = TextCorrector(lexicon_path, text_replacements)
         blocks = txt_corrector.process_blocks(blocks)
 
     return {"header": header_info, "blocks": blocks}

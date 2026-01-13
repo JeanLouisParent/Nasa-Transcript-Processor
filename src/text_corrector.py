@@ -19,15 +19,17 @@ from collections import Counter
 WORD_RE = re.compile(r"\b[\w']+\b")
 
 class TextCorrector:
-    def __init__(self, lexicon_path: Path = None):
+    def __init__(self, lexicon_path: Path = None, replacements: dict[str, str] = None):
         """
-        Initialize text corrector with a lexicon.
+        Initialize text corrector with a lexicon and custom replacements.
         Args:
             lexicon_path: Path to the lexicon JSON file.
+            replacements: Dictionary of regex patterns to replacement strings.
         """
         self.vocab = set()
         self.word_freq = Counter()
         self.bigram_freq = Counter()
+        self.replacements = replacements or {}
         
         if lexicon_path and lexicon_path.exists():
             self._load_lexicon(lexicon_path)
@@ -59,15 +61,9 @@ class TextCorrector:
         # Fix hyphenation: "commu- nication" -> "communication"
         text = re.sub(r"(\w+)-\s+([a-z]+)", r"\1\2", text)
 
-        # Domain-specific fixes (NASA transcript common OCR errors)
-        # Fix "(0" or "G0" or "(O" -> "GO"
-        text = re.sub(r"\(0\b", "GO", text)
-        text = re.sub(r"\bG0\b", "GO", text)
-        
-        # Fix "ll" instead of "11" (very common in Apollo 11 transcripts)
-        # Only if surrounded by spaces or at start/end of string to avoid words like "ball"
-        text = re.sub(r"\bll\b", "11", text)
-        text = re.sub(r"\bI1\b", "11", text)
+        # Apply mission-specific replacements
+        for pattern, replacement in self.replacements.items():
+            text = re.sub(pattern, replacement, text)
 
         # Remove prohibited chars inside words (OCR artifacts like '|', '~')
         text = re.sub(r"[|~_]", "", text)

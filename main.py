@@ -110,7 +110,8 @@ def run_ocr_pipeline(
     config: GlobalConfig,
     page_results: list[PageResult],
     page_offset: int = 0,
-    valid_speakers: list[str] = None
+    valid_speakers: list[str] = None,
+    text_replacements: dict[str, str] = None
 ) -> int:
     """
     Run OCR on already processed pages.
@@ -151,7 +152,7 @@ def run_ocr_pipeline(
             text = client.ocr_image(enhanced)
             lines = [line.strip() for line in text.splitlines() if line.strip()]
             rows = parse_ocr_text(text, page_num)
-            payload = build_page_json(rows, lines, page_num, page_offset, valid_speakers)
+            payload = build_page_json(rows, lines, page_num, page_offset, valid_speakers, text_replacements)
 
             (page_dir / f"{page_id}_ocr_raw.txt").write_text(text + "\n", encoding="utf-8")
             (page_dir / f"{page_id}.json").write_text(
@@ -280,12 +281,14 @@ def process(pdf_name: str, pages: str, clean: bool, no_ocr: bool, ocr_url: str, 
         click.echo()
         mission_cfg = load_mission_config(Path("config"), pdf_path.name)
         valid_speakers = mission_cfg.layout_overrides.get("valid_speakers")
+        text_replacements = mission_cfg.layout_overrides.get("text_replacements")
         ocr_failures = run_ocr_pipeline(
             pdf_path, 
             global_cfg, 
             result.page_results, 
             mission_cfg.page_offset,
-            valid_speakers
+            valid_speakers,
+            text_replacements
         )
         if ocr_failures > 0:
             raise SystemExit(1)

@@ -129,6 +129,7 @@ col1_end = 0.15  # Optional override
 
 - [Architecture](docs/ARCHITECTURE.md) - Module structure and data flow
 - [Pipeline](docs/PIPELINE.md) - Processing stages in detail
+- [Post-Processing](docs/POST_PROCESSING.md) - Text intelligence and structural parsing
 - [Extending](docs/EXTENDING.md) - Adding missions, block types, processing steps
 
 ## Lexicon & Assets

@@ -30,12 +30,10 @@ class TextCorrector:
         self.word_freq = Counter()
         self.bigram_freq = Counter()
         
-        # Default common NASA OCR fixes
+        # Default common NASA OCR fixes (generic)
         self.replacements = {
             r"\(0\b": "GO",
-            r"\bG0\b": "GO",
-            r"\bll\b": "11",
-            r"\bI1\b": "11"
+            r"\bG0\b": "GO"
         }
         # Merge with mission-specific replacements
         if replacements:
@@ -80,31 +78,48 @@ class TextCorrector:
         
         return text
 
-    def suggest_correction(self, word: str) -> str | None:
+    def suggest_correction(self, word: str, prev_word: str = None) -> str | None:
         """
-        Suggest a correction for a word if it's not in the vocabulary.
-        Returns the best candidate or None.
+        Suggest a correction for a word using frequency and context (bigrams).
         """
         word_lower = word.lower()
         
-        # If word is known (or is a number), it's fine
+        # 1. Known word?
         if word_lower in self.vocab or word_lower.isdigit():
             return None
             
-        # Ignore very short words (1-2 chars) unless they are clearly noise
+        # 2. Short word noise?
         if len(word) < 3:
             return None
 
-        # Find close matches
-        candidates = difflib.get_close_matches(word_lower, self.vocab, n=3, cutoff=0.7)
-        
+        # 3. Find candidates
+        candidates = difflib.get_close_matches(word_lower, self.vocab, n=5, cutoff=0.6)
         if not candidates:
             return None
 
-        # Rank candidates by frequency
-        best_candidate = max(candidates, key=lambda w: self.word_freq.get(w, 0))
-        
-        # Restore case (Title Case or UPPER CASE)
+        # 4. Rank candidates
+        # Score = Frequency + Bigram Bonus
+        best_candidate = None
+        best_score = -1
+
+        for cand in candidates:
+            score = self.word_freq.get(cand, 0)
+            
+            # Context bonus
+            if prev_word:
+                bigram = f"{prev_word.lower()} {cand}"
+                if bigram in self.bigram_freq:
+                    # Huge bonus for bigram match (e.g. "Roger Houston")
+                    score += self.bigram_freq[bigram] * 100 
+            
+            if score > best_score:
+                best_score = score
+                best_candidate = cand
+
+        if not best_candidate:
+            return None
+
+        # Restore case
         if word.istitle():
             return best_candidate.title()
         elif word.isupper():
@@ -114,22 +129,46 @@ class TextCorrector:
 
     def correct_text(self, text: str) -> str:
         """
-        Apply full correction pipeline to a text string.
+        Apply full correction pipeline to a text string with context awareness.
         """
         # 1. Cleaning
         text = self.clean_noise(text)
         
-        # 2. Word-by-word correction
-        # We use a regex to find words to preserve whitespace and punctuation
+        # 2. Tokenize while keeping delimiters to reconstruct string
+        # Split by whitespace but keep delimiters in the list
+        # Actually, simpler to split by words and reconstruct
+        tokens = re.split(r"(\s+)", text)
+        corrected_tokens = []
         
-        def replace_func(match):
-            word = match.group(0)
-            correction = self.suggest_correction(word)
-            return correction if correction else word
-
-        text = WORD_RE.sub(replace_func, text)
+        prev_word = None
         
-        return text
+        for token in tokens:
+            # Check if token contains a word (not just space/punctuation)
+            # We strip punctuation for the lookup, but keep it for reconstruction
+            word_match = re.search(r"\w+", token)
+            
+            if word_match:
+                # Extract pure word part
+                # Note: this simple logic assumes one word per token split by space
+                # If token is "Houston." -> word is "Houston"
+                # We need to be careful not to lose the "."
+                
+                # Let's use the regex to isolate the word inside the token
+                def repl(m):
+                    nonlocal prev_word
+                    w = m.group(0)
+                    corr = self.suggest_correction(w, prev_word)
+                    final = corr if corr else w
+                    prev_word = final # Update context
+                    return final
+                
+                new_token = re.sub(r"\w+", repl, token)
+                corrected_tokens.append(new_token)
+            else:
+                # Just whitespace/punctuation
+                corrected_tokens.append(token)
+        
+        return "".join(corrected_tokens)
 
     def process_blocks(self, blocks: list[dict]) -> list[dict]:
         """

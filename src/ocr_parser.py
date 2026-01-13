@@ -6,8 +6,10 @@ Parses plain text OCR output into structured blocks for NASA transcripts.
 
 import difflib
 import re
+from pathlib import Path
 
 from .speaker_corrector import SpeakerCorrector
+from .text_corrector import TextCorrector
 from .timestamp_corrector import TimestampCorrector
 
 # Regex patterns for transcript parsing
@@ -290,5 +292,12 @@ def build_page_json(
     if valid_speakers:
         sp_corrector = SpeakerCorrector(valid_speakers)
         blocks = sp_corrector.process_blocks(blocks)
+
+    # Post-process text (spelling and noise)
+    # TODO: Make lexicon path configurable via mission config if needed
+    lexicon_path = Path("assets/lexicon/apollo11_lexicon.json")
+    if lexicon_path.exists():
+        txt_corrector = TextCorrector(lexicon_path)
+        blocks = txt_corrector.process_blocks(blocks)
 
     return {"header": header_info, "blocks": blocks}

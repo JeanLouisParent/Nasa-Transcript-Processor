@@ -33,7 +33,11 @@ class TextCorrector:
         # Default common NASA OCR fixes (generic)
         self.replacements = {
             r"\(0\b": "GO",
-            r"\bG0\b": "GO"
+            r"\bG0\b": "GO",
+            # Fix Apollo Programs: TOO, P0O, T52 -> P00, P52
+            r"\b[PT][0O](\d)\b": r"P0\1",
+            r"\b[PT](\d{2})\b": r"P\1",
+            r"\b[PT]OO\b": "P00"
         }
         # Merge with mission-specific replacements
         if replacements:
@@ -103,6 +107,10 @@ class TextCorrector:
         best_score = -1
 
         for cand in candidates:
+            # Avoid shortening very short words (e.g. "TAN" -> "AN")
+            if len(word_lower) <= 3 and len(cand) < len(word_lower):
+                continue
+
             score = self.word_freq.get(cand, 0)
             
             # Context bonus

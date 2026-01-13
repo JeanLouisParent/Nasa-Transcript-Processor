@@ -51,12 +51,36 @@ class SpeakerCorrector:
     def process_blocks(self, blocks: list[dict]) -> list[dict]:
         """
         Process blocks to correct speaker names.
+        Also attempts to extract speaker from text if speaker field is empty.
         """
         if not self.valid_speakers:
             return blocks
 
         for block in blocks:
-            if block.get("type") == "comm" and block.get("speaker"):
+            if block.get("type") != "comm":
+                continue
+
+            # 1. Try to recover speaker from text if empty
+            if not block.get("speaker") and block.get("text"):
+                # Split first word
+                parts = block["text"].split(maxsplit=1)
+                if parts:
+                    first_word = parts[0]
+                    # Check if first word looks like a speaker (fuzzy match)
+                    # We use a stricter cutoff here to avoid extracting random words
+                    corrected = self.correct_speaker(first_word)
+                    
+                    # If correct_speaker found a match in valid_speakers (and it's not just returning original)
+                    if corrected in self.valid_speakers_set:
+                        block["speaker"] = corrected
+                        # Remove the speaker from text
+                        if len(parts) > 1:
+                            block["text"] = parts[1]
+                        else:
+                            block["text"] = "" # Only speaker in text?
+
+            # 2. Correct existing speaker field
+            if block.get("speaker"):
                 block["speaker"] = self.correct_speaker(block["speaker"])
         
         return blocks

@@ -11,46 +11,89 @@ Pipeline for processing scanned NASA mission transcripts. Performs page-by-page 
 - **LM Studio OCR**: High-performance AI OCR (optimized JPEG payload, <5s/page)
 - **Parallel processing**: Multi-threaded image processing with progress tracking
 
-## Installation
+## Getting Started
 
+### 1. Requirements & Prerequisites
+- **Python 3.10+**
+- **LM Studio** (running with a vision model like `qwen3-vl-4b`) for the OCR stage.
+- **Poppler** (optional, for some PDF operations)
+
+### 2. Installation
 ```bash
 # Clone the repository
 git clone <repository-url>
 cd ocr_transcript_v2
 
-# Create virtual environment (Python 3.10+ required)
-python3.10 -m venv venv
+# Create virtual environment
+python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
 ```
 
-## Quick Start
+### 3. Preparation
+1.  Place your source PDF files in the `input/` directory.
+2.  Ensure your LM Studio server is running and accessible (default: `http://localhost:1234`).
+3.  Check `config/missions.toml` if your mission requires specific page offsets or column boundary overrides.
+
+---
+
+## Usage Guide
+
+The pipeline is operated via the `main.py` CLI. It currently supports two main commands: `process` and `info`.
+
+### Processing a Transcript
+The `process` command is the main entry point. It extracts pages, enhances images, detects layout, and performs OCR.
 
 ```bash
-# Process all pages (image + OCR)
+# Basic processing (looks for the file in the 'input/' folder)
 python main.py process AS11_TEC.PDF
 
-# Process specific pages
-python main.py process AS11_TEC.PDF -p 1-50
-python main.py process AS11_TEC.PDF -p 10,12,14-16
+# Processing specific page ranges
+# Format: 'start-end', 'single', or 'multiple,ranges'
+python main.py process AS11_TEC.PDF --pages 1-50
+python main.py process AS11_TEC.PDF --pages 10,12,14-16
 
-# Image processing only (skip OCR)
+# Skip OCR (useful for testing image enhancement or layout detection)
 python main.py process AS11_TEC.PDF --no-ocr
 
-# Verbose logging
-python main.py process AS11_TEC.PDF -p 1-5 -v
-
-# Clean previous output
+# Clean previous output before starting
 python main.py process AS11_TEC.PDF --clean
 
-# Custom OCR server
-python main.py process AS11_TEC.PDF --ocr-url http://localhost:8080
+# Overriding OCR URL at runtime
+python main.py process AS11_TEC.PDF --ocr-url http://192.168.1.50:1234
+```
 
-# Get PDF info
+### Checking PDF Info
+To verify the number of pages and basic metadata before processing:
+```bash
 python main.py info AS11_TEC.PDF
 ```
+
+---
+
+## CLI Reference
+
+### `process` Arguments
+| Option | Short | Description |
+| :--- | :--- | :--- |
+| `--pages` | `-p` | Specific pages to process (e.g., `1-10,15`). |
+| `--clean` | | Deletes the output directory for this PDF before starting. |
+| `--no-ocr` | | Runs the vision pipeline but skips the AI OCR stage. |
+| `--ocr-url` | | Overrides the OCR server URL defined in `defaults.toml`. |
+| `--verbose` | `-v` | Enables DEBUG level logs for detailed troubleshooting. |
+
+---
+
+## Post-Processing Intelligence
+This pipeline includes advanced post-processing to ensure high accuracy (~95%):
+- **Iterative Splitting**: Automatically separates dialogue from station annotations (e.g., `GRAND BAHAMA`).
+- **Lexicon Protection**: Technical terms like `GUAYMAS` or `REFSMMAT` are protected from being incorrectly "fixed" into common words.
+- **Visual Scoring**: Text correction prioritizes visual similarity over word frequency.
+- **Smart Merging**: Multi-line dialogues are merged into clean paragraphs in the JSON output.
+
+See the [Post-Processing Documentation](docs/POST_PROCESSING.md) for more details.
 
 ## Output Structure
 

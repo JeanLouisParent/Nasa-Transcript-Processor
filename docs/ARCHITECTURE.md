@@ -155,21 +155,25 @@ config = load_mission_config(Path("config"), "AS11_TEC.PDF")
 - Configurable timeout (default: 120s)
 
 ### ocr_parser.py
-**Purpose**: Parse OCR text into structured blocks
+**Purpose**: Parse OCR text into structured blocks and apply intelligent corrections
 
-**Key Functions**:
-- `parse_ocr_text(text, page_num)`: Parse plain text into rows
-- `build_page_json(rows, lines, page_num, offset)`: Build JSON output
-- `extract_header_metadata(lines, page_num, offset)`: Extract page info
+**Key Components**:
+- `parse_ocr_text()`: Advanced iterative parser for layout recovery.
+- `TextCorrector`: Lexicon-based spelling and context engine.
+- `TimestampCorrector`: Timecode recovery and chronological validation.
+- `SpeakerCorrector`: Standardizes callers based on mission roster.
+
+**Post-Processing Details**: See [POST_PROCESSING.md](./POST_PROCESSING.md) for logic and formulas.
 
 **Output JSON Structure**:
 ```json
 {
-  "page": {"number": 42, "tape": "1/2", "apollo": "APOLLO 11..."},
+  "header": {"page": 42, "tape": "1/2", "is_apollo_title": true},
   "blocks": [
     {"type": "comm", "timestamp": "00 00 00 00", "speaker": "CDR", "text": "..."},
     {"type": "continuation", "text": "..."},
-    {"type": "annotation", "text": "..."}
+    {"type": "annotation", "text": "..."},
+    {"type": "meta", "text": "END OF TAPE"}
   ]
 }
 ```

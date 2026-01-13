@@ -19,7 +19,7 @@ from collections import Counter
 WORD_RE = re.compile(r"\b[\w']+\b")
 
 class TextCorrector:
-    def __init__(self, lexicon_path: Path = None, replacements: dict[str, str] = None):
+    def __init__(self, lexicon_path: Path = None, replacements: dict[str, str] = None, mission_keywords: list[str] = None):
         """
         Initialize text corrector with a lexicon and custom replacements.
         Args:
@@ -45,6 +45,14 @@ class TextCorrector:
         
         if lexicon_path and lexicon_path.exists():
             self._load_lexicon(lexicon_path)
+        
+        # Add mission keywords to vocab with a high frequency to protect them
+        if mission_keywords:
+            for kw_phrase in mission_keywords:
+                for word in kw_phrase.split():
+                    w_lower = word.lower()
+                    self.vocab.add(w_lower)
+                    self.word_freq[w_lower] = max(self.word_freq.get(w_lower, 0), 100)
 
     def _load_lexicon(self, path: Path):
         try:
@@ -96,29 +104,35 @@ class TextCorrector:
         if len(word) < 3:
             return None
 
-        # 3. Find candidates
-        candidates = difflib.get_close_matches(word_lower, self.vocab, n=5, cutoff=0.6)
-        if not candidates:
-            return None
-
+        # 3. Get candidates from lexicon
+        # Use a lower cutoff for short words to ensure common words aren't missed
+        cutoff = 0.5 if len(word_lower) <= 3 else 0.6
+        candidates = difflib.get_close_matches(word_lower, self.vocab, n=20, cutoff=cutoff)
+        
         # 4. Rank candidates
-        # Score = Frequency + Bigram Bonus
+        # Score = (Similarity Ratio * 10000) + Frequency + Bigram Bonus
         best_candidate = None
         best_score = -1
 
         for cand in candidates:
-            # Avoid shortening very short words (e.g. "TAN" -> "AN")
+            # Avoid shortening very short words
             if len(word_lower) <= 3 and len(cand) < len(word_lower):
                 continue
 
-            score = self.word_freq.get(cand, 0)
+            # Calculate similarity ratio
+            ratio = difflib.SequenceMatcher(None, word_lower, cand).ratio()
             
-            # Context bonus
+            # Weighted score: ratio is dominant. 
+            # Add a penalty for length difference to favor MASTER over WASTE for MASTEP
+            len_diff = abs(len(word_lower) - len(cand))
+            score = (ratio * 10000) - (len_diff * 500) + self.word_freq.get(cand, 0)
+            
+            # Context bonus (keep it low so ratio remains dominant)
             if prev_word:
                 bigram = f"{prev_word.lower()} {cand}"
                 if bigram in self.bigram_freq:
-                    # Huge bonus for bigram match (e.g. "Roger Houston")
-                    score += self.bigram_freq[bigram] * 100 
+                    # Context match adds a small boost
+                    score += self.bigram_freq[bigram] * 10 
             
             if score > best_score:
                 best_score = score

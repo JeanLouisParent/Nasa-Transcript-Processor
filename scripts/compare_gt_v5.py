@@ -8,9 +8,9 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.ocr_parser import build_page_json, parse_ocr_text
-from src.mission_config import load_mission_config
-from src.global_config import load_global_config
+from src.ocr.ocr_parser import build_page_json, parse_ocr_text
+from src.config.mission_config import load_mission_config
+from src.config.global_config import load_global_config
 
 def normalize_text(text):
     if not text: return ""

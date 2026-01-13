@@ -21,16 +21,16 @@ from loguru import logger
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.config import PipelineConfig
-from src.global_config import GlobalConfig, load_global_config
-from src.image_processor import ImageProcessor
-from src.layout_detector import LayoutDetector
-from src.mission_config import load_mission_config
-from src.ocr_client import PLAIN_OCR_PROMPT, LMStudioOCRClient
-from src.ocr_parser import build_page_json, parse_ocr_text
-from src.output_generator import OutputGenerator
-from src.page_extractor import PageExtractor, get_pdf_info
-from src.pipeline import PageResult, TranscriptPipeline
+from src.core.config import PipelineConfig
+from src.config.global_config import GlobalConfig, load_global_config
+from src.processors.image_processor import ImageProcessor
+from src.processors.layout_detector import LayoutDetector
+from src.config.mission_config import load_mission_config
+from src.ocr.ocr_client import PLAIN_OCR_PROMPT, LMStudioOCRClient
+from src.ocr.ocr_parser import build_page_json, parse_ocr_text
+from src.utils.output_generator import OutputGenerator
+from src.processors.page_extractor import PageExtractor, get_pdf_info
+from src.core.pipeline import PageResult, TranscriptPipeline
 
 
 def setup_logging(verbose: bool = False) -> None:

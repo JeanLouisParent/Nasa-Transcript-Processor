@@ -1,0 +1,150 @@
+Comparison Report V5 (Keywords + Contractions + Program Codes)
+Total blocks checked: 777
+Matches (>98%): 741 (95.4%)
+
+--- Page 3 | 00 00 00 15 ---
+SPEAKER MISMATCH: OCR='CC' vs GT='CMP'
+
+--- Page 6 | 00 00 17 38 ---
+SPEAKER MISMATCH: OCR='CT' vs GT='CT ... Houston COMM TECH. Canary COMM TECH.'
+TEXT DIFF (0.00):
+  OCR: ... Houston COMM TECH. Canary COMM TECH.
+   GT: 
+
+--- Page 7 | 00 00 43 13 ---
+SPEAKER MISMATCH: OCR='CT' vs GT='CT TAN LOS.'
+TEXT DIFF (0.00):
+  OCR: TAN LOS.
+   GT: 
+
+--- Page 9 | 00 01 04 55 ---
+TEXT DIFF (0.92):
+  OCR: Roger. We copy. We'll be configured and waiting for whatever you want to send down.
+   GT: Roger. We copy. We'll be configured and waiting for whatever you want to send down. GUAYMAS (REV 1)
+
+--- Page 11 | 00 01 29 27 ---
+TEXT DIFF (0.91):
+  OCR: Cecil B. deAldrin is standing by for struck-
+   GT: Cecil B. deAldrin is standing by for instructions.
+
+--- Page 12 | 00 01 39 04 ---
+TEXT DIFF (0.88):
+  OCR: Apollo 11, this is Houston. Readback correct. For your information, Goldstone reports receiving approximately 1 minute of FM downlink carrier. We were getting ready to request you confirm on the S-band AUX switches, the S-band AUX tape switch to OFF and the S-band AUX TV switch to TV. Over.
+   GT: Apollo 11, this is Houston. Readback correct. For your information, Goldstone reports receiving approximately 1 minute of FM downlink carrier. We were getting ready to request you confirm on the S-band AUX switches, the S-band AU
+
+--- Page 13 | 00 01 43 36 ---
+TEXT DIFF (0.95):
+  OCR: Apollo 11, this is Houston. You are GO for PYRO ARM.
+   GT: Apollo 11, this Houston. You are GO for RYRO ARM.
+
+--- Page 13 | 00 01 43 57 ---
+TEXT DIFF (0.73):
+  OCR: Apollo 11, this is Houston. If you will give us P00 in ACCEPT, we have a state vector update for you.
+   GT: Apollo 11, this is Houston. If you will give us P00 in ACC
+
+--- Page 15 | 00 01 54 38 ---
+TEXT DIFF (0.89):
+  OCR: Roger. Out.
+   GT: Roger. 0ut.
+
+--- Page 15 | 00 02 10 27 ---
+SPEAKER MISMATCH: OCR='MS' vs GT='MSFN'
+
+--- Page 17 | 00 02 37 38 ---
+TEXT DIFF (0.96):
+  OCR: This is a lot better than that static we had previously.
+   GT: This is a lot better than this static we had previously.
+
+--- Page 26 | 00 04 17 18 ---
+TEXT DIFF (0.96):
+  OCR: Roger. Copy. CRYO PRESS light.
+   GT: Roger. Copy. CRY0 PRESS light.
+
+--- Page 26 | 00 04 28 16 ---
+TEXT DIFF (0.97):
+  OCR: Apollo 11, this is Houston. Over.
+   GT: Apollo 11, this ls Houston. Over.
+
+--- Page 26 | 00 04 28 21 ---
+TEXT DIFF (0.88):
+  OCR: Houston, Apollo 11.
+   GT: Houston, Apollo ll.
+
+--- Page 27 | 00 04 41 24 ---
+SPEAKER MISMATCH: OCR='SC' vs GT='CC'
+
+--- Page 27 | 00 04 41 37 ---
+SPEAKER MISMATCH: OCR='SC' vs GT='CC'
+
+--- Page 28 | 00 04 45 39 ---
+SPEAKER MISMATCH: OCR='SC' vs GT='CC'
+
+--- Page 28 | 00 04 46 49 ---
+SPEAKER MISMATCH: OCR='SC' vs GT='CC'
+
+--- Page 28 | 00 04 49 33 ---
+SPEAKER MISMATCH: OCR='SC' vs GT='CC'
+
+--- Page 28 | 00 04 51 18 ---
+SPEAKER MISMATCH: OCR='CMP' vs GT='CDR'
+
+--- Page 30 | 00 05 13 05 ---
+TEXT DIFF (0.32):
+  OCR: Roger. If you'll give us ACCEPT and stay in P00, we'll set your trunnion bias to zero. And, I have a plan for balancing your oxygen CRYO's. Over.
+   GT: Roger. If you'll give us ACC
+
+--- Page 30 | 00 05 13 26 ---
+TEXT DIFF (0.83):
+  OCR: Houston, Apollo 11. We've got the - what appears to be the S-IVB in sight - at - oh, I'd estimate a couple of miles away. It's at our number 5 window and the dump appears to
+   GT: Houston, Apollo 11. We've got the - what appears to be the S IVB in sight - at - oh, I'd estimate a couple of miles away. It's at our number 5 window and the dump appears to be coming out of two radially opposite directions from the S IVB.
+
+--- Page 31 | 00 05 13 51 ---
+SPEAKER MISMATCH: OCR='SC' vs GT='CC'
+
+--- Page 31 | 00 05 14 46 ---
+SPEAKER MISMATCH: OCR='SC' vs GT='CC'
+
+--- Page 31 | 00 05 14 59 ---
+SPEAKER MISMATCH: OCR='SC' vs GT='CC'
+
+--- Page 33 | 00 05 24 43 ---
+SPEAKER MISMATCH: OCR='SC' vs GT='CC'
+
+--- Page 33 | 00 05 28 18 ---
+SPEAKER MISMATCH: OCR='SC' vs GT='CC'
+
+--- Page 33 | 00 05 28 24 ---
+SPEAKER MISMATCH: OCR='SC' vs GT='CC'
+
+--- Page 33 | 00 05 28 44 ---
+SPEAKER MISMATCH: OCR='SC' vs GT='CC'
+
+--- Page 33 | 00 05 35 27 ---
+SPEAKER MISMATCH: OCR='CT' vs GT='CMP'
+
+--- Page 33 | 00 05 35 31 ---
+SPEAKER MISMATCH: OCR='SC' vs GT='CC'
+
+--- Page 34 | 00 05 37 45 ---
+SPEAKER MISMATCH: OCR='SC' vs GT='CC'
+
+--- Page 36 | 00 06 26 51 ---
+TEXT DIFF (0.70):
+  OCR: Roger. We expected that. That's why we had you turn the fan on. We were getting pretty
+   GT: Roger. We expected that. That's why we had you turn the fan on. We were getting pretty close to the caution and warning limits. We were trying to prevent that.
+
+--- Page 37 | 00 06 40 34 ---
+TEXT DIFF (0.62):
+  OCR: Okay. It looks like an awful big one. We noticed that you'd moved star number 2 to the
+   GT: Okay. It looks like an awful big one. We noticed that you'd moved star number 2 to the tail end of the listing, and we should be marking first on star 40. Did that have anything to do with it?
+
+--- Page 39 | 00 07 09 24 ---
+TEXT DIFF (0.44):
+  OCR: Hello, Apollo 11. Houston. We've run the angles given in the flight plan for the P23
+   GT: Hello, Apollo 11. Houston. We've run the angles given in the flight plan for the P23 attitude through the machines down here, and they come up the same thing every time. We think everything's going correctly, Mike, and we're wondering if the nonsymmetrical horizon might by giving a problem. Over.
+
+--- Page 46 | 00 08 11 00 ---
+TEXT DIFF (0.67):
+  OCR: Hello, Apollo 11. Houston. We'd like you to go P00 in ACCEPT. We'll have a PTC REFSMMAT for you momentarily. Over.
+   GT: Hello, Apollo 11. Houston. We'd like you to go P00 in ACC
+

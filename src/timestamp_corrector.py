@@ -10,9 +10,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-# Regex for loose timestamp detection (allows common OCR errors like O instead of 0)
-# Captures 4 groups of 1-2 digits or chars looking like digits
-TIMESTAMP_PATTERN = re.compile(r"^\s*([\dO]{1,2})[\s:;]+([\dO]{1,2})[\s:;]+([\dO]{1,2})[\s:;]+([\dO]{1,2})\s*$", re.IGNORECASE)
+# Regex for loose timestamp detection (allows common OCR errors like O instead of 0, ' instead of digit)
+TIMESTAMP_PATTERN = re.compile(r"^\s*([\dO']{1,2})[\s:;]+([\dO']{1,2})[\s:;]+([\dO']{1,2})[\s:;]+([\dO']{1,2})\s*$", re.IGNORECASE)
 
 @dataclass
 class Timecode:
@@ -53,7 +52,7 @@ class TimestampCorrector:
 
         # 1. Normalize separators and chars
         # Replace common OCR errors
-        normalized = text.upper().replace("O", "0").replace("Q", "0").replace("I", "1").replace("L", "1").replace("S", "5").replace("B", "8")
+        normalized = text.upper().replace("O", "0").replace("Q", "0").replace("I", "1").replace("L", "1").replace("S", "5").replace("B", "8").replace("'", "0")
         
         # Handle "xx xx xx --" case (dashes for missing seconds)
         normalized = normalized.replace("--", "00").replace("-", "0")

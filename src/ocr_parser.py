@@ -13,8 +13,12 @@ from .text_corrector import TextCorrector
 from .timestamp_corrector import TimestampCorrector
 
 # Regex patterns for transcript parsing
-TIMESTAMP_LINE_RE = re.compile(r"^\d{2}\s+\d{2}\s+\d{2}\s+\d{1,2}$")
-TIMESTAMP_PREFIX_RE = re.compile(r"^(\d{2}\s+\d{2}\s+\d{2}\s+\d{1,2})\b")
+# Allows for OCR noise in seconds (e.g. '8 for 48) and loose separation
+TIMESTAMP_STRICT_RE = re.compile(r"^\d{2}\s+\d{2}\s+\d{2}\s+\d{1,2}$")
+TIMESTAMP_PREFIX_RE = re.compile(r"^([\dO]{2}\s+[\dO]{2}\s+[\dO]{2}\s+[\dO'I]{1,2})\b")
+# Pattern to find a timestamp embedded inside a line
+TIMESTAMP_EMBEDDED_RE = re.compile(r"\s+([\dO]{2}\s+[\dO]{2}\s+[\dO]{2}\s+[\dO'I]{1,2})\b")
+
 SPEAKER_LINE_RE = re.compile(r"^[A-Z][A-Z0-9]{1,6}(?:\s*\([A-Z0-9]+\))?$")
 SPEAKER_PAREN_RE = re.compile(r"^\([A-Z0-9]+\)$")
 HEADER_PAGE_RE = re.compile(r"\bPAGE\s*(\d{1,4})\b", re.IGNORECASE)
@@ -41,13 +45,34 @@ def parse_ocr_text(text: str, page_num: int) -> list[dict]:
         List of row dictionaries with keys: page, line, type, timestamp, speaker, text
     """
     lines = [line.strip() for line in text.splitlines() if line.strip()]
+    
+    # Pre-process lines to split embedded timestamps
+    # "Text... 00 00 00 00 Speaker..." -> "Text...", "00 00 00 00 Speaker..."
+    split_lines = []
+    for line in lines:
+        # Check for embedded timestamp
+        match = TIMESTAMP_EMBEDDED_RE.search(line)
+        if match:
+            # Check if it's not just a false positive at start (already handled by prefix regex)
+            # But the regex requires a space before, so it's strictly embedded.
+            start = match.start()
+            part1 = line[:start].strip()
+            part2 = line[start:].strip() # This will start with the timestamp
+            if part1:
+                split_lines.append(part1)
+            split_lines.append(part2)
+        else:
+            split_lines.append(line)
+    
+    lines = split_lines
+
     if not lines:
         return []
 
     # Find first timestamp to identify header zone
     first_ts_idx = next(
         (i for i, line in enumerate(lines)
-         if TIMESTAMP_LINE_RE.match(line) or TIMESTAMP_PREFIX_RE.match(line)),
+         if TIMESTAMP_STRICT_RE.match(line) or TIMESTAMP_PREFIX_RE.match(line)),
         None
     )
 
@@ -111,7 +136,7 @@ def parse_ocr_text(text: str, page_num: int) -> list[dict]:
             continue
 
         # Standalone timestamp line
-        if TIMESTAMP_LINE_RE.match(line):
+        if TIMESTAMP_STRICT_RE.match(line):
             flush_pending()
             pending_ts = line
             continue
@@ -197,7 +222,7 @@ def extract_header_metadata(lines: list[str], page_num: int, page_offset: int = 
     # Find header zone (before first timestamp)
     first_ts_idx = next(
         (i for i, line in enumerate(lines) 
-         if TIMESTAMP_LINE_RE.match(line) or TIMESTAMP_PREFIX_RE.match(line)),
+         if TIMESTAMP_STRICT_RE.match(line) or TIMESTAMP_PREFIX_RE.match(line)),
         None
     )
     # Limit search to first 10 lines if no timestamp found

@@ -4,6 +4,7 @@ OCR Output Parser.
 Parses plain text OCR output into structured blocks for NASA transcripts.
 """
 
+import difflib
 import re
 
 # Regex patterns for transcript parsing
@@ -75,7 +76,7 @@ def parse_ocr_text(text: str, page_num: int) -> list[dict]:
             first_ts_idx is not None
             and idx <= first_ts_idx
             and not TIMESTAMP_PREFIX_RE.match(line)
-            and any(kw in upper for kw in HEADER_KEYWORDS)
+            and any(fuzzy_find(line, kw) for kw in HEADER_KEYWORDS)
         )
         is_footer = "***" in line or "ASTERISK" in upper
         is_annotation = "(REV" in upper
@@ -142,9 +143,27 @@ def parse_ocr_text(text: str, page_num: int) -> list[dict]:
     return rows
 
 
+def fuzzy_find(text: str, keyword: str, threshold: float = 0.6) -> bool:
+    """Check if keyword is fuzzily present in text."""
+    if not text or not keyword:
+        return False
+    text_upper = text.upper()
+    keyword_upper = keyword.upper()
+    
+    if keyword_upper in text_upper:
+        return True
+        
+    # Check words for similarity
+    words = text_upper.split()
+    for word in words:
+        if difflib.SequenceMatcher(None, word, keyword_upper).ratio() >= threshold:
+            return True
+    return False
+
+
 def extract_header_metadata(lines: list[str], page_num: int, page_offset: int = 0) -> dict:
     """
-    Extract page metadata from header lines.
+    Extract page metadata from header lines with fuzzy matching.
 
     Args:
         lines: Non-empty text lines from OCR
@@ -152,44 +171,69 @@ def extract_header_metadata(lines: list[str], page_num: int, page_offset: int = 
         page_offset: Page number offset from mission config
 
     Returns:
-        Dictionary with keys: number, tape, apollo
+        Dictionary with keys: page, tape, apollo, network
     """
-    result = {"number": page_num + 1 + page_offset, "tape": "", "apollo": ""}
+    result = {
+        "page": page_num + 1 + page_offset, # Default fallack
+        "tape": None,
+        "apollo": None,
+        "network": None
+    }
 
     # Find header zone (before first timestamp)
     first_ts_idx = next(
-        (i for i, line in enumerate(lines)
+        (i for i, line in enumerate(lines) 
          if TIMESTAMP_LINE_RE.match(line) or TIMESTAMP_PREFIX_RE.match(line)),
         None
     )
-    header_lines = lines[:first_ts_idx + 1] if first_ts_idx is not None else lines[:10]
+    # Limit search to first 10 lines if no timestamp found
+    search_limit = first_ts_idx if first_ts_idx is not None else min(len(lines), 10)
+    header_lines = lines[:search_limit]
 
-    apollo_parts = []
+    # Specific extractors
     for line in header_lines:
-        if TIMESTAMP_PREFIX_RE.match(line):
-            continue
         normalized = normalize_whitespace(line)
-        if not normalized:
-            continue
+        upper = normalized.upper()
 
-        # Extract page number
+        # 1. Page Number (PAGE XXX)
+        # Regex is usually reliable, but fallback to fuzzy "PAGE" if needed
         if match := HEADER_PAGE_RE.search(normalized):
-            result["number"] = int(match.group(1))
+            try:
+                result["page"] = int(match.group(1))
+            except ValueError:
+                pass
+        elif fuzzy_find(upper, "PAGE"):
+            # Try to find digits in this line if "PAGE" was fuzzy matched
+            digits = re.findall(r"\d+", normalized)
+            if digits:
+                # Assume last number is page
+                result["page"] = int(digits[-1])
 
-        # Extract tape number
+        # 2. Tape Number (TAPE XX/XX)
         if match := HEADER_TAPE_RE.search(normalized):
             result["tape"] = match.group(1).replace(" ", "")
+        elif fuzzy_find(upper, "TAPE"):
+            # Look for pattern like 12/3 or 12-3
+            tape_match = re.search(r"(\d+[\s/-]+\d+)", normalized)
+            if tape_match:
+                result["tape"] = tape_match.group(1).replace(" ", "")
 
-        # Collect Apollo header parts
-        if any(key in normalized.upper() for key in HEADER_APOLLO_KEYS):
-            apollo_parts.append(normalized)
+        # 3. Network (GOSS NET 1)
+        if fuzzy_find(upper, "GOSS") or fuzzy_find(upper, "NET"):
+            result["network"] = normalized
 
-    if apollo_parts:
-        apollo_text = normalize_whitespace(" ".join(apollo_parts))
-        if "APOLLO" in apollo_text.upper():
-            result["apollo"] = apollo_text
+        # 4. Apollo Title
+        if fuzzy_find(upper, "APOLLO") and fuzzy_find(upper, "TRANSCRIPTION"):
+            result["apollo"] = normalized
 
     return result
+
+
+def clean_trailing_footer(text: str) -> str:
+    """Remove trailing footer info (tape/page) from text."""
+    # Pattern for "tape XX/XX Page XX" at end of string
+    pattern = re.compile(r"\s+tape\s+[\d/]+\s+Page\s+\d+\s*$", re.IGNORECASE)
+    return pattern.sub("", text)
 
 
 def build_page_json(rows: list[dict], lines: list[str], page_num: int, page_offset: int = 0) -> dict:
@@ -203,22 +247,14 @@ def build_page_json(rows: list[dict], lines: list[str], page_num: int, page_offs
         page_offset: Page number offset
 
     Returns:
-        Dictionary with page info and blocks
+        Dictionary with header info and blocks
     """
-    page_info = extract_header_metadata(lines, page_num, page_offset)
+    header_info = extract_header_metadata(lines, page_num, page_offset)
     blocks = []
 
     for row in rows:
+        # Skip header rows in the main block list, as they are aggregated in header_info
         if row["type"] == "header":
-            # Update page info from header rows
-            normalized = normalize_whitespace(row["text"])
-            if match := HEADER_PAGE_RE.search(normalized):
-                page_info["number"] = int(match.group(1))
-            if match := HEADER_TAPE_RE.search(normalized):
-                page_info["tape"] = match.group(1).replace(" ", "")
-            upper = normalized.upper()
-            if "APOLLO" in upper and "AIR" in upper:
-                page_info["apollo"] = normalized
             continue
 
         block_type = "continuation" if row["type"] == "text" else row["type"]
@@ -231,8 +267,8 @@ def build_page_json(rows: list[dict], lines: list[str], page_num: int, page_offs
                 block["speaker"] = row["speaker"]
 
         if row["text"]:
-            block["text"] = row["text"]
+            block["text"] = clean_trailing_footer(row["text"])
 
         blocks.append(block)
 
-    return {"page": page_info, "blocks": blocks}
+    return {"header": header_info, "blocks": blocks}

@@ -33,6 +33,8 @@ col1_end = 0.15
 col2_end = 0.30
 # Valid speakers for correction
 valid_speakers = ["CDR", "CC", "CMP", "LMP", "SC", "HOUSTON", "MS", "PAO", "CT", "HORNET", "MCC", "COMM"]
+# Specific OCR fixes for Apollo 11
+text_replacements = { "\\bll\\b" = "11", "\\bI1\\b" = "11", "\\bil\\b" = "11", "(\\w+)'11" = "\\1'll" }
 
 [mission.12]
 file_name = "AS12_TEC.PDF"

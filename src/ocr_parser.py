@@ -16,6 +16,7 @@ HEADER_PAGE_RE = re.compile(r"\bPAGE\s*(\d{1,4})\b", re.IGNORECASE)
 HEADER_TAPE_RE = re.compile(r"\bTAPE\s*([0-9]{1,2}\s*/\s*[0-9]{1,2})\b", re.IGNORECASE)
 HEADER_KEYWORDS = ("GOSS", "NET", "TAPE", "PAGE", "APOLLO", "AIR-TO-GROUND")
 HEADER_APOLLO_KEYS = ("APOLLO", "AIR", "GROUND", "VOICE", "TRANSCRIPTION")
+END_OF_TAPE_KEYWORD = "END OF TAPE"
 
 
 def normalize_whitespace(text: str) -> str:
@@ -80,11 +81,20 @@ def parse_ocr_text(text: str, page_num: int) -> list[dict]:
         )
         is_footer = "***" in line or "ASTERISK" in upper
         is_annotation = "(REV" in upper
+        is_end_of_tape = fuzzy_find(line, END_OF_TAPE_KEYWORD)
 
-        if is_header or is_footer or is_annotation:
+        if is_header or is_footer or is_annotation or is_end_of_tape:
             flush_pending()
             line_index += 1
-            block_type = "header" if is_header else ("footer" if is_footer else "annotation")
+            if is_end_of_tape:
+                block_type = "meta"
+            elif is_header:
+                block_type = "header"
+            elif is_footer:
+                block_type = "footer"
+            else:
+                block_type = "annotation"
+            
             rows.append({
                 "page": page_num + 1,
                 "line": line_index,
@@ -171,13 +181,12 @@ def extract_header_metadata(lines: list[str], page_num: int, page_offset: int = 
         page_offset: Page number offset from mission config
 
     Returns:
-        Dictionary with keys: page, tape, apollo, network
+        Dictionary with keys: page, tape, is_apollo_title
     """
     result = {
-        "page": page_num + 1 + page_offset, # Default fallack
+        "page": page_num + 1 + page_offset, # Default fallback
         "tape": None,
-        "apollo": None,
-        "network": None
+        "is_apollo_title": False
     }
 
     # Find header zone (before first timestamp)
@@ -196,35 +205,27 @@ def extract_header_metadata(lines: list[str], page_num: int, page_offset: int = 
         upper = normalized.upper()
 
         # 1. Page Number (PAGE XXX)
-        # Regex is usually reliable, but fallback to fuzzy "PAGE" if needed
         if match := HEADER_PAGE_RE.search(normalized):
             try:
                 result["page"] = int(match.group(1))
             except ValueError:
                 pass
         elif fuzzy_find(upper, "PAGE"):
-            # Try to find digits in this line if "PAGE" was fuzzy matched
             digits = re.findall(r"\d+", normalized)
             if digits:
-                # Assume last number is page
                 result["page"] = int(digits[-1])
 
         # 2. Tape Number (TAPE XX/XX)
         if match := HEADER_TAPE_RE.search(normalized):
             result["tape"] = match.group(1).replace(" ", "")
         elif fuzzy_find(upper, "TAPE"):
-            # Look for pattern like 12/3 or 12-3
             tape_match = re.search(r"(\d+[\s/-]+\d+)", normalized)
             if tape_match:
                 result["tape"] = tape_match.group(1).replace(" ", "")
 
-        # 3. Network (GOSS NET 1)
-        if fuzzy_find(upper, "GOSS") or fuzzy_find(upper, "NET"):
-            result["network"] = normalized
-
-        # 4. Apollo Title
+        # 3. Apollo Title (Boolean)
         if fuzzy_find(upper, "APOLLO") and fuzzy_find(upper, "TRANSCRIPTION"):
-            result["apollo"] = normalized
+            result["is_apollo_title"] = True
 
     return result
 

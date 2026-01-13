@@ -7,6 +7,8 @@ Parses plain text OCR output into structured blocks for NASA transcripts.
 import difflib
 import re
 
+from .timestamp_corrector import TimestampCorrector
+
 # Regex patterns for transcript parsing
 TIMESTAMP_LINE_RE = re.compile(r"^\d{2}\s+\d{2}\s+\d{2}\s+\d{1,2}$")
 TIMESTAMP_PREFIX_RE = re.compile(r"^(\d{2}\s+\d{2}\s+\d{2}\s+\d{1,2})\b")
@@ -271,5 +273,9 @@ def build_page_json(rows: list[dict], lines: list[str], page_num: int, page_offs
             block["text"] = clean_trailing_footer(row["text"])
 
         blocks.append(block)
+
+    # Post-process timestamps
+    corrector = TimestampCorrector()
+    blocks = corrector.process_blocks(blocks)
 
     return {"header": header_info, "blocks": blocks}

@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from typing import Optional
 
 # Regex for loose timestamp detection (allows common OCR errors like O instead of 0, ' instead of digit)
-TIMESTAMP_PATTERN = re.compile(r"^\s*([\dO']{1,2})[\s:;]+([\dO']{1,2})[\s:;]+([\dO']{1,2})[\s:;]+([\dO']{1,2})\s*$", re.IGNORECASE)
+TS_CHARS_CLASS = r"[\dOI'I\)\(\]\[]"
+TIMESTAMP_PATTERN = re.compile(rf"^\s*({TS_CHARS_CLASS}{{1,2}})[\s:;]+({TS_CHARS_CLASS}{{1,2}})[\s:;]+({TS_CHARS_CLASS}{{1,2}})[\s:;]+({TS_CHARS_CLASS}{{1,2}})\s*$", re.IGNORECASE)
 
 @dataclass
 class Timecode:
@@ -52,7 +53,17 @@ class TimestampCorrector:
 
         # 1. Normalize separators and chars
         # Replace common OCR errors
-        normalized = text.upper().replace("O", "0").replace("Q", "0").replace("I", "1").replace("L", "1").replace("S", "5").replace("B", "8").replace("'", "0")
+        normalized = text.upper()
+        # O/Q -> 0
+        normalized = normalized.replace("O", "0").replace("Q", "0")
+        # I/L/]/[ -> 1
+        normalized = normalized.replace("I", "1").replace("L", "1").replace("]", "1").replace("[", "1")
+        # S -> 5, B -> 8
+        normalized = normalized.replace("S", "5").replace("B", "8")
+        # ) / ( -> 0 (very common for 0)
+        normalized = normalized.replace(")", "0").replace("(", "0")
+        # ' -> can be anything, but let's assume it doesn't add a digit
+        normalized = normalized.replace("'", "")
         
         # Handle "xx xx xx --" case (dashes for missing seconds)
         normalized = normalized.replace("--", "00").replace("-", "0")
@@ -62,7 +73,17 @@ class TimestampCorrector:
             return None
 
         try:
-            d, h, m, s = map(int, match.groups())
+            # Re-clean each group to handle cases like "1)" -> "10" after replacements
+            groups = []
+            for g in match.groups():
+                # If group is ")", it became "0" already. If it was "1)", it's "10".
+                # Ensure we have digits
+                clean_g = "".join(c for c in g if c.isdigit())
+                if not clean_g:
+                    clean_g = "0"
+                groups.append(int(clean_g))
+            
+            d, h, m, s = groups
         except ValueError:
             return None
 

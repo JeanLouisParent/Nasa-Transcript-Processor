@@ -1,18 +1,14 @@
 """
-Timestamp Correction Module.
+Timestamp Corrector Module.
 
-Normalizes and validates timestamps in transcript blocks.
-Format expected: DD HH MM SS (Day, Hour, Minute, Second).
-Enforces logical constraints (0-23h, 0-59m, 0-59s) and chronological order.
+Handles normalization, correction, and chronological sequencing of NASA timecodes.
+Ensures that timestamps are strictly monotonic (always increasing).
 """
 
 import re
 from dataclasses import dataclass
 from typing import Optional
 
-# Regex for loose timestamp detection (allows common OCR errors like O instead of 0, ' instead of digit)
-TS_CHARS_CLASS = r"[\dOI'I\)\(\]\[]"
-TIMESTAMP_PATTERN = re.compile(rf"^\s*({TS_CHARS_CLASS}{{1,2}})[\s:;]+({TS_CHARS_CLASS}{{1,2}})[\s:;]+({TS_CHARS_CLASS}{{1,2}})[\s:;]+({TS_CHARS_CLASS}{{1,2}})\s*$", re.IGNORECASE)
 
 @dataclass
 class Timecode:
@@ -24,129 +20,115 @@ class Timecode:
     def to_seconds(self) -> int:
         return self.day * 86400 + self.hour * 3600 + self.minute * 60 + self.second
 
+    @staticmethod
+    def from_seconds(total_seconds: int) -> 'Timecode':
+        d, rem = divmod(total_seconds, 86400)
+        h, rem = divmod(rem, 3600)
+        m, s = divmod(rem, 60)
+        return Timecode(d, h, m, s)
+
     def __str__(self) -> str:
         return f"{self.day:02d} {self.hour:02d} {self.minute:02d} {self.second:02d}"
 
-    @staticmethod
-    def from_string(text: str) -> Optional['Timecode']:
-        """Parse strict DD HH MM SS string."""
-        try:
-            parts = [int(p) for p in text.split()]
-            if len(parts) != 4:
-                return None
-            return Timecode(*parts)
-        except ValueError:
-            return None
+    def __lt__(self, other):
+        return self.to_seconds() < other.to_seconds()
+
+    def __le__(self, other):
+        return self.to_seconds() <= other.to_seconds()
 
 
 class TimestampCorrector:
-    def __init__(self):
-        self.last_valid_tc: Timecode | None = None
+    """
+    Corrects and sequences timestamps to ensure chronological integrity.
+    """
 
-    def correct_string(self, text: str) -> str | None:
-        """
-        Attempt to fix a malformed timestamp string.
-        Returns normalized 'DD HH MM SS' or None if unrecoverable.
-        """
-        if not text:
-            return None
-
-        # 1. Normalize separators and chars
-        # Replace common OCR errors
-        normalized = text.upper()
-        # O/Q -> 0
-        normalized = normalized.replace("O", "0").replace("Q", "0")
-        # I/L/]/[ -> 1
-        normalized = normalized.replace("I", "1").replace("L", "1").replace("]", "1").replace("[", "1")
-        # S -> 5, B -> 8
-        normalized = normalized.replace("S", "5").replace("B", "8")
-        # ) / ( -> 0 (very common for 0)
-        normalized = normalized.replace(")", "0").replace("(", "0")
-        # ' -> can be anything, but let's assume it doesn't add a digit
-        normalized = normalized.replace("'", "")
+    def __init__(self, initial_ts: Optional[str] = None):
+        self.last_valid_ts: Optional[Timecode] = None
+        self.ts_pattern = re.compile(r"(\d{1,2})[\s:]+(\d{1,2})[\s:]+(\d{1,2})[\s:]+(\d{1,2})")
         
-        # Handle "xx xx xx --" case (dashes for missing seconds)
-        normalized = normalized.replace("--", "00").replace("-", "0")
+        if initial_ts:
+            self.last_valid_ts = self.parse(initial_ts)
 
-        match = TIMESTAMP_PATTERN.match(normalized)
+    def normalize_noise(self, text: str) -> str:
+        """Replace common OCR artifacts in timestamps."""
+        if not text:
+            return ""
+        
+        # Replace common misreads
+        norm = text.upper()
+        norm = norm.replace("O", "0").replace("Q", "0")
+        norm = norm.replace("I", "1").replace("L", "1").replace("]", "1").replace("[", "1")
+        norm = norm.replace("S", "5").replace("B", "8")
+        norm = norm.replace(")", "0").replace("(", "0")
+        norm = norm.replace("'", "")
+        
+        # Handle dashes
+        norm = norm.replace("--", "00").replace("-", "0")
+        return norm
+
+    def parse(self, text: str) -> Optional[Timecode]:
+        """Attempt to parse a timecode string."""
+        clean = self.normalize_noise(text)
+        match = self.ts_pattern.search(clean)
         if not match:
-            return None
-
-        try:
-            # Re-clean each group to handle cases like "1)" -> "10" after replacements
-            groups = []
-            for g in match.groups():
-                # If group is ")", it became "0" already. If it was "1)", it's "10".
-                # Ensure we have digits
-                clean_g = "".join(c for c in g if c.isdigit())
-                if not clean_g:
-                    clean_g = "0"
-                groups.append(int(clean_g))
+            # Try to handle missing seconds
+            parts = re.findall(r"\d+", clean)
+            if len(parts) == 3:
+                parts.append("00")
             
-            d, h, m, s = groups
+            if len(parts) == 4:
+                try:
+                    return Timecode(int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3]))
+                except ValueError:
+                    return None
+            return None
+        
+        try:
+            return Timecode(
+                int(match.group(1)), 
+                int(match.group(2)), 
+                int(match.group(3)), 
+                int(match.group(4))
+            )
         except ValueError:
             return None
 
-        # 2. Logical Validation & Correction
-        
-        # Seconds correction
-        if s >= 60:
-            # Try to fix "85" -> "05" if OCR read 0 as 8? Or just clamp?
-            # Or maybe "5" became "55"?
-            # Simplest heuristic: modulo 60 if close, or clamp?
-            # Actually, "91" minutes is impossible. 
-            pass # Keep logic simple for now
-
-        # Validate ranges
-        if not (0 <= h < 24 and 0 <= m < 60 and 0 <= s < 60):
-            # Attempt fuzzy fix based on last_valid_tc if available?
-            # For now, invalidate if strictly impossible
-            return None
-
-        return f"{d:02d} {h:02d} {m:02d} {s:02d}"
-
     def process_blocks(self, blocks: list[dict]) -> list[dict]:
         """
-        Process a list of blocks to correct timestamps.
-        Maintains chronological order context.
+        Process a list of blocks to ensure strictly increasing timestamps.
         """
-        corrected_blocks = []
-        self.last_valid_tc = None # Reset for page (or should we carry over from prev page?)
-        # For now, reset per page because we process pages independently.
-        
         for block in blocks:
-            if block.get("type") != "comm" or not block.get("timestamp"):
-                corrected_blocks.append(block)
+            if block.get("type") != "comm":
                 continue
 
-            raw_ts = block["timestamp"]
-            corrected_ts = self.correct_string(raw_ts)
+            ts_str = block.get("timestamp", "")
+            current_ts = self.parse(ts_str)
 
-            if corrected_ts:
-                # Check consistency with previous (monotonicity)
-                current_tc = Timecode.from_string(corrected_ts)
-                
-                if self.last_valid_tc and current_tc:
-                    # If current is WAY earlier than previous (e.g. prev=Day 4, curr=Day 0), it's likely an OCR error on the Day digit
-                    # Example: "04 12 00 00" followed by "01 12 00 10" -> "01" is likely "04"
+            if current_ts:
+                # If we have a previous TS, ensure monotonicity
+                if self.last_valid_ts:
+                    # If current is less than or equal to previous, it's an error or duplicate
+                    if current_ts <= self.last_valid_ts:
+                        # Invent: Increment previous by 1 second
+                        new_seconds = self.last_valid_ts.to_seconds() + 1
+                        current_ts = Timecode.from_seconds(new_seconds)
+                        block["timestamp_correction"] = "inferred_monotonic"
                     
-                    diff = current_tc.to_seconds() - self.last_valid_tc.to_seconds()
-                    
-                    if diff < -60: # Tolerance of 1 minute backward (maybe out of order lines?)
-                        # Try to fix the Day digit first
-                        if current_tc.day != self.last_valid_tc.day:
-                            fixed_tc = Timecode(self.last_valid_tc.day, current_tc.hour, current_tc.minute, current_tc.second)
-                            if fixed_tc.to_seconds() >= self.last_valid_tc.to_seconds():
-                                corrected_ts = str(fixed_tc)
-                                current_tc = fixed_tc
-                
-                self.last_valid_tc = current_tc
-                block["timestamp"] = corrected_ts
+                    # Check for impossible jumps (> 12 hours)
+                    elif (current_ts.to_seconds() - self.last_valid_ts.to_seconds()) > 43200:
+                        new_seconds = self.last_valid_ts.to_seconds() + 1
+                        current_ts = Timecode.from_seconds(new_seconds)
+                        block["timestamp_correction"] = "corrected_jump"
+
+                block["timestamp"] = str(current_ts)
+                self.last_valid_ts = current_ts
             else:
-                # Could not correct -> mark as suspect or leave as is?
-                # For now, leave raw but maybe add a flag?
-                pass
+                # If TS is missing or unparseable but it's a COMM block, infer from last
+                if self.last_valid_ts:
+                    new_seconds = self.last_valid_ts.to_seconds() + 1
+                    inferred_ts = Timecode.from_seconds(new_seconds)
+                    block["timestamp"] = str(inferred_ts)
+                    block["timestamp_correction"] = "inferred_missing"
+                    self.last_valid_ts = inferred_ts
 
-            corrected_blocks.append(block)
-
-        return corrected_blocks
+        return blocks

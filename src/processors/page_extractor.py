@@ -19,7 +19,7 @@ import fitz  # pymupdf
 import numpy as np
 from loguru import logger
 
-from .config import PipelineConfig
+from src.core.config import PipelineConfig
 
 
 class PageExtractor:

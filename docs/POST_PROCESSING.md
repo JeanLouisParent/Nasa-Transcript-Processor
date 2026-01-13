@@ -15,7 +15,7 @@ The post-processing stage is where the "intelligence" of the pipeline resides. I
 
 ## 1. The Block Parser (`ocr_parser.py`)
 
-The parser uses a multi-pass approach to segment raw text.
+The parser uses a multi-pass approach to segment raw text and extract metadata.
 
 ### Iterative Line Splitting
 
@@ -34,11 +34,12 @@ graph TD
     style B fill:#FC3D21,stroke:#0B3D91,color:#fff
 ```
 
-### Block Classification Logic
+### Block Classification & Metadata
 
 Once lines are separated, they are classified based on context:
 
 - **Comm**: A block starting with a timestamp.
+- **Location Extraction**: The parser looks for parentheses next to or below the speaker (e.g., `(TRANQ)`, `(EAGLE)`). This is extracted into a dedicated `location` field in the JSON.
 - **Annotation**: Isolated mission keywords or revision markers.
 - **Header/Footer**: Page/Tape info or specialized NASA markers.
 - **Continuation**: Dialogue lines following a `Comm` block.
@@ -67,15 +68,25 @@ The engine analyzes word pairs. If a correction candidate forms a known technica
 
 ---
 
-## 3. Timestamp Recovery (`timestamp_corrector.py`)
+## 3. Timestamp Recovery & Global Indexing (`timestamp_corrector.py`)
 
-OCR often misreads digits as punctuation. The engine uses aggressive regex to recover timecodes:
+### Noise Handling
+
+OCR often misreads digits as punctuation. The engine uses aggressive regex to recover timecodes, now supporting both 3-segment (`HH MM SS`) and 4-segment (`DD HH MM SS`) formats:
 
 | OCR Noise     | Recovered     |
 | :------------ | :------------ |
+| `04 06 47`    | `04 06 47 00` |
 | `00 07 1) 41` | `00 07 10 41` |
 | `OI 23 OO --` | `01 23 00 00` |
-| `[1 45 : 32`  | `11 45 32 00` |
+
+### Global Chronological Index
+
+To ensure perfect continuity across the entire mission, the pipeline maintains a `timestamps_index.json` file.
+
+1.  **Cross-Page Context**: When processing a new page, the engine looks at the last valid timestamp of the previous page.
+2.  **Monotonic Enforcement**: Every new timestamp must be strictly greater than the previous one.
+3.  **Automatic Correction**: If a timestamp is missing or a duplicate is detected, the engine "judges" the flow and increments the time by 1 second to maintain a logical sequence.
 
 ---
 
@@ -108,4 +119,4 @@ With this multi-layered approach, the pipeline currently achieves:
 
 - **~95% Accuracy** on challenging Apollo 11 Technical Transcripts.
 - **Perfect Structural Separation** between dialogue and ground station annotations.
-- **Chronological Integrity** across multi-tape transitions.
+- **Chronological Integrity** across the entire document.

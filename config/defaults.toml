@@ -6,7 +6,7 @@ output_dir = "output"
 
 # OCR Settings
 ocr_url = "http://192.168.1.119:1234"
-ocr_model = "qwen3-vl-4b"             # Vision model to use
+ocr_model = "qwen3-vl-4b"  # Vision model to use
 ocr_timeout = 120
 ocr_max_tokens = 4096
 

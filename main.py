@@ -26,6 +26,7 @@ from src.config.global_config import GlobalConfig, load_global_config
 from src.processors.image_processor import ImageProcessor
 from src.processors.layout_detector import LayoutDetector
 from src.config.mission_config import load_mission_config
+from src.correctors.timestamp_index import GlobalTimestampIndex
 from src.ocr.ocr_client import PLAIN_OCR_PROMPT, LMStudioOCRClient
 from src.ocr.ocr_parser import build_page_json, parse_ocr_text
 from src.utils.output_generator import OutputGenerator
@@ -112,7 +113,8 @@ def run_ocr_pipeline(
     page_offset: int = 0,
     valid_speakers: list[str] = None,
     text_replacements: dict[str, str] = None,
-    mission_keywords: list[str] = None
+    mission_keywords: list[str] = None,
+    valid_locations: list[str] = None
 ) -> int:
     """
     Run OCR on already processed pages.
@@ -134,6 +136,10 @@ def run_ocr_pipeline(
 
     logger.info(f"Starting OCR for {total_to_ocr} successfully processed pages")
 
+    # Load Global Timestamp Index
+    index_path = config.output_dir / pdf_path.stem / "timestamps_index.json"
+    ts_index = GlobalTimestampIndex.load(index_path)
+
     for pr in page_results:
         if not pr.success or not pr.output:
             continue
@@ -153,29 +159,39 @@ def run_ocr_pipeline(
             text = client.ocr_image(enhanced)
             lines = [line.strip() for line in text.splitlines() if line.strip()]
             rows = parse_ocr_text(text, page_num, mission_keywords)
-            payload = build_page_json(rows, lines, page_num, page_offset, valid_speakers, text_replacements, mission_keywords)
+            
+            # Get last timestamp from previous pages for continuity
+            initial_ts = ts_index.get_last_timestamp_before(page_num)
+            
+            payload = build_page_json(
+                rows, lines, page_num, page_offset, 
+                valid_speakers, text_replacements, 
+                mission_keywords, valid_locations,
+                initial_ts=initial_ts
+            )
+
+            # Update index with new timestamps
+            page_timestamps = [
+                b.get("timestamp") for b in payload.get("blocks", []) 
+                if b.get("type") == "comm" and b.get("timestamp")
+            ]
+            ts_index.add_timestamps(page_num, page_timestamps)
 
             (page_dir / f"{page_id}_ocr_raw.txt").write_text(text + "\n", encoding="utf-8")
-            (page_dir / f"{page_id}.json").write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-            )
-        except Exception as exc:
+            (page_dir / f"{page_id}.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+            page_duration = time.perf_counter() - page_start
+            logger.info(f"  OCR page {page_num + 1} ({page_duration:.0f}s)")
+
+        except Exception as e:
             failures += 1
-            logger.error(f"OCR Error on page {page_num + 1}: {exc}")
-            error_payload = {
-                "page": {"number": page_num + 1 + page_offset},
-                "blocks": [],
-                "error": str(exc),
-            }
-            (page_dir / f"{page_id}.json").write_text(
-                json.dumps(error_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-            )
+            logger.error(f"  OCR failed for page {page_num + 1}: {e}")
 
-        elapsed = time.perf_counter() - page_start
-        click.echo(f"  OCR page {page_num + 1} ({format_duration(elapsed)})")
-
-    total = time.perf_counter() - total_start
-    click.echo(f"OCR completed in {format_duration(total)} ({failures} failures)")
+    # Save index at the end
+    ts_index.save()
+    
+    total_duration = time.perf_counter() - total_start
+    logger.info(f"OCR completed in {total_duration/60:.0f}m{total_duration%60:.0f}s ({failures} failures)")
     return failures
 
 
@@ -282,6 +298,7 @@ def process(pdf_name: str, pages: str, clean: bool, no_ocr: bool, ocr_url: str, 
         click.echo()
         mission_cfg = load_mission_config(Path("config"), pdf_path.name)
         valid_speakers = mission_cfg.layout_overrides.get("valid_speakers")
+        valid_locations = mission_cfg.layout_overrides.get("valid_locations")
         
         # Merge global and mission replacements
         global_parser = global_cfg.pipeline_defaults.get("parser", {})
@@ -302,7 +319,8 @@ def process(pdf_name: str, pages: str, clean: bool, no_ocr: bool, ocr_url: str, 
             mission_cfg.page_offset,
             valid_speakers,
             text_replacements,
-            mission_keywords
+            mission_keywords,
+            valid_locations
         )
         if ocr_failures > 0:
             raise SystemExit(1)

@@ -8,9 +8,9 @@ import difflib
 import re
 from pathlib import Path
 
-from .speaker_corrector import SpeakerCorrector
-from .text_corrector import TextCorrector
-from .timestamp_corrector import TimestampCorrector
+from src.correctors.speaker_corrector import SpeakerCorrector
+from src.correctors.text_corrector import TextCorrector
+from src.correctors.timestamp_corrector import TimestampCorrector
 
 # Regex patterns for transcript parsing
 TS_CHARS = r"[\dOI'I\)\(\]\[]"

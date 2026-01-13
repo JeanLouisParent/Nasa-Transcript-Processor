@@ -19,8 +19,8 @@ import cv2
 import numpy as np
 from loguru import logger
 
-from .config import PipelineConfig
-from .layout_detector import Block, BlockType, LayoutResult, SubColumn
+from src.core.config import PipelineConfig
+from src.processors.layout_detector import Block, BlockType, LayoutResult, SubColumn
 
 # Colors (BGR format for OpenCV)
 COLORS = {

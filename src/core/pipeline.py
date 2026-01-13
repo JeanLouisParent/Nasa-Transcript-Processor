@@ -20,11 +20,11 @@ from pathlib import Path
 from loguru import logger
 from tqdm import tqdm
 
-from .config import PipelineConfig
-from .image_processor import ImageProcessor, ProcessingResult
-from .layout_detector import LayoutDetector, LayoutResult
-from .output_generator import OutputGenerator, PageOutput
-from .page_extractor import PageExtractor
+from src.core.config import PipelineConfig
+from src.processors.image_processor import ImageProcessor, ProcessingResult
+from src.processors.layout_detector import LayoutDetector, LayoutResult
+from src.utils.output_generator import OutputGenerator, PageOutput
+from src.processors.page_extractor import PageExtractor
 
 
 @dataclass

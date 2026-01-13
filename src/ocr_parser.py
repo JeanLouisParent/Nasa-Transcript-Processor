@@ -7,6 +7,7 @@ Parses plain text OCR output into structured blocks for NASA transcripts.
 import difflib
 import re
 
+from .speaker_corrector import SpeakerCorrector
 from .timestamp_corrector import TimestampCorrector
 
 # Regex patterns for transcript parsing
@@ -239,7 +240,13 @@ def clean_trailing_footer(text: str) -> str:
     return pattern.sub("", text)
 
 
-def build_page_json(rows: list[dict], lines: list[str], page_num: int, page_offset: int = 0) -> dict:
+def build_page_json(
+    rows: list[dict], 
+    lines: list[str], 
+    page_num: int, 
+    page_offset: int = 0,
+    valid_speakers: list[str] = None
+) -> dict:
     """
     Build structured JSON output for a page.
 
@@ -248,6 +255,7 @@ def build_page_json(rows: list[dict], lines: list[str], page_num: int, page_offs
         lines: Raw non-empty lines
         page_num: 0-indexed page number
         page_offset: Page number offset
+        valid_speakers: Optional list of valid speaker codes for correction
 
     Returns:
         Dictionary with header info and blocks
@@ -275,7 +283,12 @@ def build_page_json(rows: list[dict], lines: list[str], page_num: int, page_offs
         blocks.append(block)
 
     # Post-process timestamps
-    corrector = TimestampCorrector()
-    blocks = corrector.process_blocks(blocks)
+    ts_corrector = TimestampCorrector()
+    blocks = ts_corrector.process_blocks(blocks)
+
+    # Post-process speakers
+    if valid_speakers:
+        sp_corrector = SpeakerCorrector(valid_speakers)
+        blocks = sp_corrector.process_blocks(blocks)
 
     return {"header": header_info, "blocks": blocks}

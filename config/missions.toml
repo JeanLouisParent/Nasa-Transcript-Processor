@@ -27,10 +27,12 @@ page_offset = 0
 
 [mission.11]
 file_name = "AS11_TEC.PDF"
-page_offset = -2
+page_offset = 0
 # Apollo 11 a un layout standard, on garde les défauts
 col1_end = 0.15
 col2_end = 0.30
+# Valid speakers for correction
+valid_speakers = ["CDR", "CC", "CMP", "LMP", "SC", "HOUSTON", "MS", "PAO", "CT", "HORNET", "MCC", "COMM"]
 
 [mission.12]
 file_name = "AS12_TEC.PDF"

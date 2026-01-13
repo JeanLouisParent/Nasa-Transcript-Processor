@@ -29,7 +29,17 @@ class TextCorrector:
         self.vocab = set()
         self.word_freq = Counter()
         self.bigram_freq = Counter()
-        self.replacements = replacements or {}
+        
+        # Default common NASA OCR fixes
+        self.replacements = {
+            r"\(0\b": "GO",
+            r"\bG0\b": "GO",
+            r"\bll\b": "11",
+            r"\bI1\b": "11"
+        }
+        # Merge with mission-specific replacements
+        if replacements:
+            self.replacements.update(replacements)
         
         if lexicon_path and lexicon_path.exists():
             self._load_lexicon(lexicon_path)

@@ -4,11 +4,19 @@ This document describes each stage of the processing pipeline.
 
 ## Overview
 
-```
-┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐
-│ Extract  │ → │ Process  │ → │  Detect  │ → │ Generate │ → │   OCR    │
-│   Page   │   │  Image   │   │  Layout  │   │  Output  │   │ (option) │
-└──────────┘   └──────────┘   └──────────┘   └──────────┘   └──────────┘
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#0B3D91', 'primaryTextColor': '#fff', 'primaryBorderColor': '#FC3D21', 'lineColor': '#8BA1B4', 'secondaryColor': '#8BA1B4', 'tertiaryColor': '#fff'}}}%%
+flowchart LR
+    A[Extraction] --> B[Processing]
+    B --> C[Detection]
+    C --> D[Generation]
+    D --> E[OCR & Intelligence]
+    
+    style A fill:#0B3D91,stroke:#FC3D21,color:#fff
+    style B fill:#0B3D91,stroke:#FC3D21,color:#fff
+    style C fill:#0B3D91,stroke:#FC3D21,color:#fff
+    style D fill:#0B3D91,stroke:#FC3D21,color:#fff
+    style E fill:#FC3D21,stroke:#0B3D91,color:#fff
 ```
 
 ---

@@ -4,33 +4,31 @@ This document describes the architecture of the NASA Transcript Processing Pipel
 
 ## Overview
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        main.py (CLI)                            │
-│                     Click-based interface                       │
-└─────────────────────────────────────────────────────────────────┘
-                               │
-           ┌───────────────────┼───────────────────┐
-           ▼                   ▼                   ▼
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│    pipeline.py  │  │  ocr_client.py  │  │  ocr_parser.py  │
-│  (Orchestrator) │  │  (LM Studio)    │  │  (Text Parser)  │
-└─────────────────┘  └─────────────────┘  └─────────────────┘
-         │
-         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     Processing Pipeline                          │
-├─────────────┬─────────────┬─────────────┬─────────────┐         │
-│   page_     │   image_    │   layout_   │   output_   │         │
-│ extractor   │ processor   │  detector   │ generator   │         │
-└─────────────┴─────────────┴─────────────┴─────────────┘         │
-└─────────────────────────────────────────────────────────────────┘
-                               │
-                               ▼
-                      ┌─────────────────┐
-                      │   config.py     │
-                      │   (shared)      │
-                      └─────────────────┘
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#0B3D91', 'primaryTextColor': '#fff', 'primaryBorderColor': '#FC3D21', 'lineColor': '#8BA1B4', 'secondaryColor': '#8BA1B4', 'tertiaryColor': '#fff'}}}%%
+flowchart TD
+    CLI[main.py CLI] --> ORCH[pipeline.py Orchestrator]
+    
+    subgraph Core[Core Engine]
+        ORCH --> CFG[config.py]
+    end
+
+    subgraph Processors[Vision Stack]
+        EXT[page_extractor.py]
+        IMG[image_processor.py]
+        LAY[layout_detector.py]
+    end
+
+    subgraph Intelligence[OCR & Post-Processing]
+        CLIENT[ocr_client.py]
+        PARSER[ocr_parser.py]
+        CORR[correctors/*.py]
+    end
+
+    ORCH --> Processors
+    ORCH --> Intelligence
+    PARSER --> CORR
+    Intelligence --> OUT[output_generator.py]
 ```
 
 ## Module Responsibilities

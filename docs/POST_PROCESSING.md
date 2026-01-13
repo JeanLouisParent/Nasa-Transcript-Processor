@@ -21,6 +21,7 @@ The parser uses a multi-pass approach to segment raw text.
 Raw OCR often "glues" metadata to dialogue (e.g., `Roger. GRAND BAHAMA (REV 1)`). The parser applies an iterative splitting loop:
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#0B3D91', 'primaryTextColor': '#fff', 'primaryBorderColor': '#FC3D21', 'lineColor': '#8BA1B4', 'secondaryColor': '#8BA1B4', 'tertiaryColor': '#fff'}}}%%
 graph TD
     A[Raw OCR Line] --> B{Match Splitter?}
     B -- Timestamp --> C[Split & Re-process Part 2]
@@ -28,6 +29,8 @@ graph TD
     B -- Mission Keyword --> C
     B -- No Match --> D[Add to Line List]
     C --> B
+    
+    style B fill:#FC3D21,stroke:#0B3D91,color:#fff
 ```
 
 ### Block Classification Logic
@@ -76,20 +79,21 @@ OCR often misreads digits as punctuation. The engine uses aggressive regex to re
 The pipeline merges configurations to allow both global stability and mission-specific precision.
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#0B3D91', 'primaryTextColor': '#fff', 'primaryBorderColor': '#FC3D21', 'lineColor': '#8BA1B4', 'secondaryColor': '#8BA1B4', 'tertiaryColor': '#fff'}}}%%
 graph LR
-    G[defaults.toml] -- Global Fixes --> P[Pipeline]
+    G[defaults.toml] -- Global Fixes --> P[Pipeline Engine]
     M[missions.toml] -- Specific Overrides --> P
     P --> Result[Final JSON]
     
-    subgraph "Global"
+    subgraph "Global Config"
     G1[Generic Keywords: CSM, LM, TEI...]
     G2[Noise Fixes: RFV -> REV]
     end
     
-    subgraph "Mission (AS11)"
+    subgraph "Mission Config (AS11)"
     M1[Station Names: GUAYMAS]
     M2[Specific Slang: Gunymas -> Guaymas]
-    M3[Speaker Roster: CDR, CMP, LMP...]
+    M3[Speaker Roster: CDR, CC, LMP...]
     end
 ```
 

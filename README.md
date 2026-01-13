@@ -4,12 +4,13 @@ Pipeline for processing scanned NASA mission transcripts. Performs page-by-page 
 
 ## Features
 
-- **Page-by-page processing**: Processes one page at a time without loading entire PDF
-- **Image enhancement**: Deskew, contrast improvement, noise removal, text sharpening
-- **Geometric layout detection**: Detects text blocks using visual analysis (no OCR)
-- **Block classification**: Identifies headers, annotations, footers, and COMM blocks
-- **LM Studio OCR**: High-performance AI OCR (optimized JPEG payload, <5s/page)
-- **Parallel processing**: Multi-threaded image processing with progress tracking
+- **Page-by-page processing**: Processes one page at a time without loading entire PDF.
+- **Image enhancement**: Deskew, contrast improvement, noise removal, text sharpening.
+- **Geometric layout detection**: Detects text blocks using visual analysis (no OCR).
+- **Speaker Location Extraction**: Automatically identifies the origin of the speaker (e.g., `TRANQ`, `COLUMBIA`) and separates it from the dialogue.
+- **Global Timestamp Indexing**: Maintains chronological integrity across the entire document, fixing OCR noise and duplicate timecodes.
+- **LM Studio OCR**: High-performance AI OCR (optimized JPEG payload, <5s/page).
+- **Parallel processing**: Multi-threaded image processing with progress tracking.
 
 ## Getting Started
 
@@ -73,78 +74,7 @@ python main.py info AS11_TEC.PDF
 
 ---
 
-## CLI Reference
-
-### `process` Arguments
-| Option | Short | Description |
-| :--- | :--- | :--- |
-| `--pages` | `-p` | Specific pages to process (e.g., `1-10,15`). |
-| `--clean` | | Deletes the output directory for this PDF before starting. |
-| `--no-ocr` | | Runs the vision pipeline but skips the AI OCR stage. |
-| `--ocr-url` | | Overrides the OCR server URL defined in `defaults.toml`. |
-| `--verbose` | `-v` | Enables DEBUG level logs for detailed troubleshooting. |
-
----
-
-## Post-Processing Intelligence
-This pipeline includes advanced post-processing to ensure high accuracy (~95%):
-- **Iterative Splitting**: Automatically separates dialogue from station annotations (e.g., `GRAND BAHAMA`).
-- **Lexicon Protection**: Technical terms like `GUAYMAS` or `REFSMMAT` are protected from being incorrectly "fixed" into common words.
-- **Visual Scoring**: Text correction prioritizes visual similarity over word frequency.
-- **Smart Merging**: Multi-line dialogues are merged into clean paragraphs in the JSON output.
-
-See the [Post-Processing Documentation](docs/POST_PROCESSING.md) for more details.
-
-## Output Structure
-
-```
-output/
-└── AS11_TEC/
-    └── Page_001/
-        ├── AS11_TEC_page_0001_raw.pdf       # Original page
-        ├── AS11_TEC_page_0001_enhanced.png  # Enhanced image
-        ├── AS11_TEC_page_0001_blocks.png    # Layout visualization
-        ├── AS11_TEC_page_0001_ocr_raw.txt   # Raw OCR text
-        └── AS11_TEC_page_0001.json          # Structured blocks
-```
-
-## JSON Output Format
-
-```json
-{
-  "page": {
-    "number": 42,
-    "tape": "1/2",
-    "apollo": "APOLLO 11 AIR-TO-GROUND VOICE TRANSCRIPTION"
-  },
-  "blocks": [
-    {"type": "comm", "timestamp": "00 00 00 00", "speaker": "CDR", "text": "..."},
-    {"type": "continuation", "text": "..."},
-    {"type": "annotation", "text": "..."}
-  ]
-}
-```
-
-## CLI Reference
-
-### process
-
-```
-python main.py process <PDF> [OPTIONS]
-
-Options:
-  -p, --pages TEXT    Page range: '1-50', '10', '10,12,14-16'
-  --clean             Remove existing output first
-  --no-ocr            Skip OCR step
-  --ocr-url TEXT      LM Studio URL (overrides config)
-  -v, --verbose       Enable debug logging
-```
-
-### info
-
-```
-python main.py info <PDF>
-```
+## Configuration
 
 ## Configuration
 

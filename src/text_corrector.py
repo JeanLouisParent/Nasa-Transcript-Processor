@@ -57,17 +57,20 @@ class TextCorrector:
             return ""
 
         # Fix hyphenation: "commu- nication" -> "communication"
-        # Look for hyphen followed by space and lowercase letter
         text = re.sub(r"(\w+)-\s+([a-z]+)", r"\1\2", text)
 
-        # Remove prohibited chars inside words (OCR artifacts like '|', '~')
-        # But keep punctuation like .,?!
-        # Logic: Replace | ~ _ with space if surrounded by spaces, or remove if inside word?
-        # Safe bet: Replace weird chars with nothing if they are not standard punctuation
-        text = re.sub(r"[|~_]", "", text)
+        # Domain-specific fixes (NASA transcript common OCR errors)
+        # Fix "(0" or "G0" or "(O" -> "GO"
+        text = re.sub(r"\(0\b", "GO", text)
+        text = re.sub(r"\bG0\b", "GO", text)
         
-        # Fix common number errors: "I1" -> "11" inside numbers? 
-        # Risky without context. Let's stick to cleaning.
+        # Fix "ll" instead of "11" (very common in Apollo 11 transcripts)
+        # Only if surrounded by spaces or at start/end of string to avoid words like "ball"
+        text = re.sub(r"\bll\b", "11", text)
+        text = re.sub(r"\bI1\b", "11", text)
+
+        # Remove prohibited chars inside words (OCR artifacts like '|', '~')
+        text = re.sub(r"[|~_]", "", text)
         
         return text
 

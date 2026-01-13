@@ -6,7 +6,7 @@ output_dir = "output"
 
 # OCR Settings
 ocr_url = "http://192.168.1.119:1234"
-ocr_model = "qwen3-vl-4b"  # Vision model to use
+ocr_model = "qwen3-vl-4b"             # Vision model to use
 ocr_timeout = 120
 ocr_max_tokens = 4096
 
@@ -22,6 +22,18 @@ unsharp_amount = 1.5
 deskew_angle_threshold = 0.5
 
 # Layout Detection
-col1_end = 0.15    # Timestamp column end ratio
-col2_end = 0.30    # Speaker column end ratio
+col1_end = 0.15     # Timestamp column end ratio
+col2_end = 0.30     # Speaker column end ratio
 header_ratio = 0.10 # Header zone ratio
+
+[lexicon]
+mission_keywords = [
+    "CARNARVON", "TANANARIVE", "GUAM", "MADRID", "ASCENSION", 
+    "BERMUDA", "CANARY", "HONOLULU", "GOLDSTONE", "MILA",
+    "TEI", "TLI", "LOI", "COI", "EVA", "LM", "CSM", "CMC", "LGC", "DSKY",
+    "GRAND BAHAMA ISLANDS", "GRAND BAHAMA ISLAND", "GUAYMAS", "VANGUARD", "HONEYSUCKLE"
+]
+
+[parser]
+# Global OCR fixes applicable to all missions
+text_replacements = { "\\bRFV\\b" = "REV", "\\bRE V\\b" = "REV", "\\bre\\s+id\\b" = "read" }

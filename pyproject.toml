@@ -39,8 +39,8 @@ dev = ["pytest>=7.0.0", "pytest-cov>=4.0.0", "black>=23.0.0", "ruff>=0.1.0"]
 nasa-transcript = "main:cli"
 
 [project.urls]
-Homepage = "https://github.com/nasa-transcript-processor"
-Documentation = "https://github.com/nasa-transcript-processor/docs"
+Homepage = "https://github.com/JeanLouisParent/Nasa-Transcript-Processor"
+Documentation = "https://github.com/JeanLouisParent/Nasa-Transcript-Processor/tree/main/docs"
 
 [tool.setuptools.packages.find]
 where = ["."]

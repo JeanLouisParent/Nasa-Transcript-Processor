@@ -19,3 +19,4 @@ loguru>=0.7.0
 
 # Configuration (optional, for YAML configs)
 pyyaml>=6.0
+rich

@@ -18,7 +18,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from loguru import logger
-from tqdm import tqdm
 
 from src.core.config import PipelineConfig
 from src.processors.image_processor import ImageProcessor, ProcessingResult
@@ -302,14 +301,12 @@ class TranscriptPipeline:
         results = []
         total = end - start
 
-        with tqdm(total=total, desc="Processing pages", unit="page") as pbar:
-            for page_num in range(start, end):
-                result = self.process_page(page_num)
-                results.append(result)
-                pbar.update(1)
+        for i, page_num in enumerate(range(start, end)):
+            result = self.process_page(page_num)
+            results.append(result)
 
-                if progress_callback:
-                    progress_callback(len(results), total)
+            if progress_callback:
+                progress_callback(1, total)
 
         return results
 
@@ -332,8 +329,7 @@ class TranscriptPipeline:
         """
         results = []
         total = end - start
-        completed = 0
-
+        
         with ThreadPoolExecutor(max_workers=self.config.max_workers) as executor:
             # Submit all tasks
             future_to_page = {
@@ -341,27 +337,23 @@ class TranscriptPipeline:
                 for page_num in range(start, end)
             }
 
-            # Collect results with progress bar
-            with tqdm(total=total, desc="Processing pages", unit="page") as pbar:
-                for future in as_completed(future_to_page):
-                    page_num = future_to_page[future]
-                    try:
-                        result = future.result()
-                        results.append(result)
-                    except Exception as e:
-                        # Handle unexpected errors
-                        results.append(PageResult(
-                            page_num=page_num,
-                            success=False,
-                            error=str(e)
-                        ))
-                        logger.error(f"Unexpected error on page {page_num + 1}: {e}")
+            # Collect results
+            for future in as_completed(future_to_page):
+                page_num = future_to_page[future]
+                try:
+                    result = future.result()
+                    results.append(result)
+                except Exception as e:
+                    # Handle unexpected errors
+                    results.append(PageResult(
+                        page_num=page_num,
+                        success=False,
+                        error=str(e)
+                    ))
+                    logger.error(f"Unexpected error on page {page_num + 1}: {e}")
 
-                    completed += 1
-                    pbar.update(1)
-
-                    if progress_callback:
-                        progress_callback(completed, total)
+                if progress_callback:
+                    progress_callback(1, total)
 
         # Sort results by page number
         results.sort(key=lambda r: r.page_num)
@@ -376,14 +368,12 @@ class TranscriptPipeline:
         results = []
         total = len(page_numbers)
 
-        with tqdm(total=total, desc="Processing pages", unit="page") as pbar:
-            for page_num in page_numbers:
-                result = self.process_page(page_num)
-                results.append(result)
-                pbar.update(1)
+        for page_num in page_numbers:
+            result = self.process_page(page_num)
+            results.append(result)
 
-                if progress_callback:
-                    progress_callback(len(results), total)
+            if progress_callback:
+                progress_callback(1, total)
 
         return results
 
@@ -395,7 +385,6 @@ class TranscriptPipeline:
         """Process specific pages in parallel."""
         results = []
         total = len(page_numbers)
-        completed = 0
 
         with ThreadPoolExecutor(max_workers=self.config.max_workers) as executor:
             future_to_page = {
@@ -403,25 +392,21 @@ class TranscriptPipeline:
                 for page_num in page_numbers
             }
 
-            with tqdm(total=total, desc="Processing pages", unit="page") as pbar:
-                for future in as_completed(future_to_page):
-                    page_num = future_to_page[future]
-                    try:
-                        result = future.result()
-                        results.append(result)
-                    except Exception as e:
-                        results.append(PageResult(
-                            page_num=page_num,
-                            success=False,
-                            error=str(e)
-                        ))
-                        logger.error(f"Unexpected error on page {page_num + 1}: {e}")
+            for future in as_completed(future_to_page):
+                page_num = future_to_page[future]
+                try:
+                    result = future.result()
+                    results.append(result)
+                except Exception as e:
+                    results.append(PageResult(
+                        page_num=page_num,
+                        success=False,
+                        error=str(e)
+                    ))
+                    logger.error(f"Unexpected error on page {page_num + 1}: {e}")
 
-                    completed += 1
-                    pbar.update(1)
-
-                    if progress_callback:
-                        progress_callback(completed, total)
+                if progress_callback:
+                    progress_callback(1, total)
 
         results.sort(key=lambda r: r.page_num)
         return results

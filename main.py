@@ -9,7 +9,6 @@ Usage:
     python main.py info AS11_TEC.PDF
 """
 
-import json
 import shutil
 import sys
 import time
@@ -32,17 +31,20 @@ from src.ocr.ocr_parser import build_page_json, parse_ocr_text
 from src.utils.output_generator import OutputGenerator
 from src.processors.page_extractor import PageExtractor, get_pdf_info
 from src.core.pipeline import PageResult, TranscriptPipeline
+from src.utils.console import PipelineConsole
 
+# Initialize console manager
+console = PipelineConsole()
 
 def setup_logging(verbose: bool = False) -> None:
     """Configure logging."""
     logger.remove()
-    logger.add(
-        sys.stderr,
-        format="<level>{level: <8}</level> | <cyan>{function}</cyan> - <level>{message}</level>",
-        level="DEBUG" if verbose else "WARNING",
-        colorize=True
-    )
+    # If verbose, log to stderr as usual for debugging
+    # If not verbose, only log errors to file or suppress
+    if verbose:
+        logger.add(sys.stderr, level="DEBUG")
+    else:
+        logger.add("pipeline.log", rotation="10 MB", level="INFO")
 
 
 def resolve_pdf_path(pdf_arg: str, input_dir: Path) -> Path:
@@ -57,21 +59,13 @@ def resolve_pdf_path(pdf_arg: str, input_dir: Path) -> Path:
 def parse_pages(page_spec: str, max_pages: int) -> list[int]:
     """
     Parse page specification like "1-50,10,12-14" into page numbers.
-
-    Args:
-        page_spec: Comma-separated page ranges (1-indexed)
-        max_pages: Maximum page count
-
-    Returns:
-        Sorted list of 0-indexed page numbers
     """
     if not page_spec:
         return list(range(max_pages))
 
     pages = set()
     for token in page_spec.replace(" ", "").split(","):
-        if not token:
-            continue
+        if not token: continue
         if "-" in token:
             parts = token.split("-", 1)
             try:
@@ -79,31 +73,17 @@ def parse_pages(page_spec: str, max_pages: int) -> list[int]:
                 end = int(parts[1])
             except ValueError:
                 raise click.BadParameter(f"Invalid range: {token}") from None
-            if start < 0:
-                raise click.BadParameter("Page numbers must be >= 1")
+            if start < 0: raise click.BadParameter("Page numbers must be >= 1")
             pages.update(range(start, min(end, max_pages)))
         else:
             try:
                 page = int(token) - 1
             except ValueError:
                 raise click.BadParameter(f"Invalid page: {token}") from None
-            if page < 0:
-                raise click.BadParameter("Page numbers must be >= 1")
-            if page < max_pages:
-                pages.add(page)
+            if page < 0: raise click.BadParameter("Page numbers must be >= 1")
+            if page < max_pages: pages.add(page)
 
     return sorted(pages)
-
-
-def format_duration(seconds: float) -> str:
-    """Format seconds as human-readable duration."""
-    total = int(round(seconds))
-    h, m, s = total // 3600, (total % 3600) // 60, total % 60
-    if h:
-        return f"{h}h{m:02d}m{s:02d}s"
-    if m:
-        return f"{m}m{s:02d}s"
-    return f"{s}s"
 
 
 def run_ocr_pipeline(
@@ -116,12 +96,7 @@ def run_ocr_pipeline(
     mission_keywords: list[str] = None,
     valid_locations: list[str] = None
 ) -> int:
-    """
-    Run OCR on already processed pages.
-
-    Returns:
-        Number of failed pages
-    """
+    """Run OCR on already processed pages."""
     client = LMStudioOCRClient(
         base_url=config.ocr_url,
         model=config.ocr_model,
@@ -131,10 +106,8 @@ def run_ocr_pipeline(
     )
 
     failures = 0
-    total_start = time.perf_counter()
     total_to_ocr = sum(1 for pr in page_results if pr.success)
-
-    logger.info(f"Starting OCR for {total_to_ocr} successfully processed pages")
+    console.start_ocr(total_to_ocr)
 
     # Load Global Timestamp Index
     index_path = config.output_dir / pdf_path.stem / "timestamps_index.json"
@@ -150,7 +123,7 @@ def run_ocr_pipeline(
         page_id = f"{pdf_path.stem}_page_{page_num + 1:04d}"
 
         try:
-            # Load enhanced image from disk instead of re-processing
+            # Load enhanced image from disk
             enhanced_path = pr.output.enhanced_image
             enhanced = cv2.imread(str(enhanced_path))
             if enhanced is None:
@@ -160,7 +133,7 @@ def run_ocr_pipeline(
             lines = [line.strip() for line in text.splitlines() if line.strip()]
             rows = parse_ocr_text(text, page_num, mission_keywords)
             
-            # Get last timestamp from previous pages for continuity
+            # Get last timestamp from previous pages
             initial_ts = ts_index.get_last_timestamp_before(page_num)
             
             payload = build_page_json(
@@ -170,7 +143,7 @@ def run_ocr_pipeline(
                 initial_ts=initial_ts
             )
 
-            # Update index with new timestamps
+            # Update index
             page_timestamps = [
                 b.get("timestamp") for b in payload.get("blocks", []) 
                 if b.get("type") == "comm" and b.get("timestamp")
@@ -178,20 +151,21 @@ def run_ocr_pipeline(
             ts_index.add_timestamps(page_num, page_timestamps)
 
             (page_dir / f"{page_id}_ocr_raw.txt").write_text(text + "\n", encoding="utf-8")
+            import json
             (page_dir / f"{page_id}.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
             page_duration = time.perf_counter() - page_start
-            logger.info(f"  OCR page {page_num + 1} ({page_duration:.0f}s)")
+            console.update_ocr_progress(page_num, page_duration)
+            
+            # Small pause to let the OCR server breathe/cleanup VRAM
+            time.sleep(0.5)
 
         except Exception as e:
             failures += 1
-            logger.error(f"  OCR failed for page {page_num + 1}: {e}")
+            console.fail_ocr(page_num, str(e))
+            logger.error(f"OCR failed for page {page_num + 1}: {e}")
 
-    # Save index at the end
     ts_index.save()
-    
-    total_duration = time.perf_counter() - total_start
-    logger.info(f"OCR completed in {total_duration/60:.0f}m{total_duration%60:.0f}s ({failures} failures)")
     return failures
 
 
@@ -212,8 +186,6 @@ def cli():
 def process(pdf_name: str, pages: str, clean: bool, no_ocr: bool, ocr_url: str, verbose: bool):
     """
     Process a PDF document.
-
-    Extracts pages, enhances images, detects layout, and optionally runs OCR.
     """
     setup_logging(verbose)
 
@@ -225,10 +197,9 @@ def process(pdf_name: str, pages: str, clean: bool, no_ocr: bool, ocr_url: str, 
     # Resolve PDF
     pdf_path = resolve_pdf_path(pdf_name, global_cfg.input_dir)
     if not pdf_path.exists():
-        click.echo(f"Error: PDF not found: {pdf_path}", err=True)
+        print(f"Error: PDF not found: {pdf_path}")
         raise SystemExit(1)
 
-    # Load mission config to get layout overrides
     mission_cfg = load_mission_config(Path("config"), pdf_path.name)
 
     # Create pipeline config
@@ -238,20 +209,14 @@ def process(pdf_name: str, pages: str, clean: bool, no_ocr: bool, ocr_url: str, 
         max_workers=global_cfg.workers,
     )
     
-    # Apply global defaults (from defaults.toml)
+    # Apply defaults and overrides
     for key, value in global_cfg.pipeline_defaults.items():
-        if hasattr(config, key):
-            setattr(config, key, value)
-
-    # Apply mission-specific overrides (from missions.toml)
+        if hasattr(config, key): setattr(config, key, value)
     for key, value in mission_cfg.layout_overrides.items():
-        if hasattr(config, key):
-            setattr(config, key, value)
-            logger.debug(f"Applied mission override: {key}={value}")
+        if hasattr(config, key): setattr(config, key, value)
 
     if errors := config.validate():
-        for e in errors:
-            click.echo(f"Config error: {e}", err=True)
+        for e in errors: print(f"Config error: {e}")
         raise SystemExit(1)
 
     # Setup output
@@ -260,46 +225,26 @@ def process(pdf_name: str, pages: str, clean: bool, no_ocr: bool, ocr_url: str, 
         shutil.rmtree(output_dir)
 
     # Initialize pipeline
-    try:
-        pipeline = TranscriptPipeline(pdf_path, global_cfg.output_dir, config)
-    except FileNotFoundError as e:
-        click.echo(f"Error: {e}", err=True)
-        raise SystemExit(1) from e
-
+    pipeline = TranscriptPipeline(pdf_path, global_cfg.output_dir, config)
+    
     # Parse pages
     page_numbers = parse_pages(pages or "", pipeline.page_count)
     if not page_numbers:
-        click.echo("No valid pages to process.", err=True)
+        print("No valid pages to process.")
         raise SystemExit(1)
 
-    # Status
-    if pages:
-        click.echo(f"Processing {len(page_numbers)} pages of {pipeline.page_count}")
-    else:
-        click.echo(f"Processing all {pipeline.page_count} pages")
-    click.echo(f"Output: {output_dir}")
-    click.echo(f"DPI: {config.dpi}, Parallel: {config.parallel} ({config.max_workers} workers)")
-    click.echo()
+    # Start Console UI
+    console.start_pipeline(len(page_numbers), pdf_path.name)
 
     # Run image processing pipeline
-    result = pipeline.process_pages(page_numbers)
-
-    click.echo()
-    click.echo(f"Image processing: {result.successful_pages}/{result.processed_pages} successful")
-
-    if result.failed_pages > 0:
-        click.echo("Failed pages:")
-        for pr in result.page_results:
-            if not pr.success:
-                click.echo(f"  Page {pr.page_num + 1}: {pr.error}")
+    # We pass a lambda as callback to update the rich progress bar
+    result = pipeline.process_pages(
+        page_numbers, 
+        progress_callback=lambda current, total: console.update_image_progress(1)
+    )
 
     # Run OCR
     if not no_ocr:
-        click.echo()
-        mission_cfg = load_mission_config(Path("config"), pdf_path.name)
-        valid_speakers = mission_cfg.layout_overrides.get("valid_speakers")
-        valid_locations = mission_cfg.layout_overrides.get("valid_locations")
-        
         # Merge global and mission replacements
         global_parser = global_cfg.pipeline_defaults.get("parser", {})
         if isinstance(global_parser, dict):
@@ -311,6 +256,8 @@ def process(pdf_name: str, pages: str, clean: bool, no_ocr: bool, ocr_url: str, 
         text_replacements = {**global_replacements, **mission_replacements}
         
         mission_keywords = global_cfg.pipeline_defaults.get("lexicon", {}).get("mission_keywords")
+        valid_speakers = mission_cfg.layout_overrides.get("valid_speakers")
+        valid_locations = mission_cfg.layout_overrides.get("valid_locations")
         
         ocr_failures = run_ocr_pipeline(
             pdf_path, 
@@ -322,8 +269,8 @@ def process(pdf_name: str, pages: str, clean: bool, no_ocr: bool, ocr_url: str, 
             mission_keywords,
             valid_locations
         )
-        if ocr_failures > 0:
-            raise SystemExit(1)
+    
+    console.finish()
 
     if result.failed_pages > 0:
         raise SystemExit(1)
@@ -334,21 +281,26 @@ def process(pdf_name: str, pages: str, clean: bool, no_ocr: bool, ocr_url: str, 
 def info(pdf_name: str):
     """Display PDF information."""
     setup_logging()
-
     global_cfg = load_global_config(Path("config/defaults.toml"))
     pdf_path = resolve_pdf_path(pdf_name, global_cfg.input_dir)
 
     if not pdf_path.exists():
-        click.echo(f"Error: PDF not found: {pdf_path}", err=True)
+        print(f"Error: PDF not found: {pdf_path}")
         raise SystemExit(1)
 
     info = get_pdf_info(pdf_path)
-    click.echo(f"File: {pdf_path}")
-    click.echo(f"Pages: {info['page_count']}")
+    # Using rich to display info nicely
+    from rich.table import Table
+    from rich import box
+    
+    table = Table(title=f"PDF Info: {pdf_path.name}", box=box.ROUNDED)
+    table.add_column("Property", style="cyan")
+    table.add_column("Value", style="white")
+    table.add_row("Pages", str(info['page_count']))
     for key in ("title", "author", "creator", "producer"):
-        click.echo(f"{key.title()}: {info[key] or '(none)'}")
-    click.echo(f"Created: {info['creation_date'] or '(none)'}")
-    click.echo(f"Modified: {info['modification_date'] or '(none)'}")
+        table.add_row(key.title(), str(info[key] or '(none)'))
+    
+    console.console.print(table)
 
 
 if __name__ == "__main__":

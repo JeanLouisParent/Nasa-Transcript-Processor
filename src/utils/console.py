@@ -44,9 +44,9 @@ class PipelineConsole:
         stats_table.add_column("Metric", style="dim white")
         stats_table.add_column("Value", style="bold white", justify="right")
         stats_table.add_row("Total Pages", str(self.stats["total_pages"]))
-        stats_table.add_row("Processed", f"{self.stats["processed"]}/{self.stats["total_pages"]}")
-        stats_table.add_row("OCR Progress", f"{self.stats["ocr_done"]}/{self.stats["ocr_total"]}" if self.stats["ocr_total"] else "-")
-        stats_table.add_row("Failures", f"[red]{self.stats["failed"]}[/red]" if self.stats["failed"] > 0 else "0")
+        stats_table.add_row("Processed", f"{self.stats['processed']}/{self.stats['total_pages']}")
+        stats_table.add_row("OCR Progress", f"{self.stats['ocr_done']}/{self.stats['ocr_total']}" if self.stats['ocr_total'] else "-")
+        stats_table.add_row("Failures", f"[red]{self.stats['failed']}[/red]" if self.stats['failed'] > 0 else "0")
         if self.stats["ocr_done"] > 0 and self.stats["ocr_total"] > 0 and self.stats["ocr_start_time"]:
             elapsed = (datetime.now() - self.stats["ocr_start_time"]).total_seconds()
             if elapsed > 0:
@@ -66,7 +66,7 @@ class PipelineConsole:
         self.live.start()
 
     def log(self, message: str):
-        self.logs.append(f"[dim]{datetime.now().strftime("%H:%M:%S")}[/dim] {message}")
+        self.logs.append(f"[dim]{datetime.now().strftime('%H:%M:%S')}[/dim] {message}")
         if self.live: self.live.update(self._generate_layout())
 
     def update_image_progress(self, advance: int = 1):
@@ -101,7 +101,7 @@ class PipelineConsole:
         summary.add_row("Total Duration", duration_str)
         summary.add_row("Pages Processed", str(self.stats["processed"]))
         if self.stats["ocr_done"] > 0: summary.add_row("OCR Completed", str(self.stats["ocr_done"]))
-        summary.add_row("Failures", f"[red]{self.stats["failed"]}[/red]" if self.stats["failed"] else "[green]0[/green]")
-        summary.add_row("Status", "[green]SUCCESS[/green]" if not self.stats["failed"] else "[red]FAILED[/red]")
+        summary.add_row("Failures", f"[red]{self.stats['failed']}[/red]" if self.stats['failed'] else "[green]0[/green]")
+        summary.add_row("Status", "[green]SUCCESS[/green]" if not self.stats['failed'] else "[red]FAILED[/red]")
         console.print(summary)
         console.print("\n")

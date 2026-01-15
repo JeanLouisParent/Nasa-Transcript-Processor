@@ -229,76 +229,66 @@ class ImageProcessor:
 
     def _normalize_size(self, image: np.ndarray) -> np.ndarray:
         """
-        Normalize image to target size with uniform margins.
+        Normalize image to target size with RIGID content anchoring.
+
+        Instead of centering, we anchor the content to fixed coordinates
+        to ensure columns align across different pages.
 
         Steps:
-        1. Detect content bounding box (non-white area)
-        2. Crop to content
-        3. Add uniform margins
-        4. Resize to target dimensions
-
-        Args:
-            image: Grayscale image
-
-        Returns:
-            Normalized image with target dimensions
+        1. Clean dark scan edges
+        2. Detect content bounding box
+        3. Scale to fit target canvas while respecting margins
+        4. Anchor to TOP-LEFT of safe zone
         """
         target_h = self.config.target_height
         target_w = self.config.target_width
         margin = self.config.margin_px
 
-        # Find content bounding box
-        # Threshold to find non-white pixels (more lenient threshold)
-        _, binary = cv2.threshold(image, 240, 255, cv2.THRESH_BINARY_INV)
+        # Step 1: Clean dark scan edges (crop 5% from all sides first to remove scanner artifacts)
+        h_orig, w_orig = image.shape[:2]
+        crop_y = int(h_orig * 0.02)
+        crop_x = int(w_orig * 0.02)
+        cropped_pre = image[crop_y:h_orig-crop_y, crop_x:w_orig-crop_x]
 
-        # Find contours of content
+        # Step 2: Detect content bounding box
+        _, binary = cv2.threshold(cropped_pre, 220, 255, cv2.THRESH_BINARY_INV)
         coords = cv2.findNonZero(binary)
 
         if coords is None:
-            # Empty page - just resize
             return cv2.resize(image, (target_w, target_h), interpolation=cv2.INTER_AREA)
 
-        # Get bounding rectangle of all content
         x, y, w, h = cv2.boundingRect(coords)
+        
+        # Add slight padding to the content itself
+        pad = 5
+        content = cropped_pre[max(0, y-pad):min(cropped_pre.shape[0], y+h+pad), 
+                             max(0, x-pad):min(cropped_pre.shape[1], x+w+pad)]
+        
+        cw, ch = content.shape[1], content.shape[0]
 
-        # Add small padding around content
-        pad = 10
-        x = max(0, x - pad)
-        y = max(0, y - pad)
-        w = min(image.shape[1] - x, w + 2 * pad)
-        h = min(image.shape[0] - y, h + 2 * pad)
-
-        # Crop to content
-        content = image[y:y+h, x:x+w]
-
-        # Calculate available space for content (target minus margins)
-        content_area_w = target_w - 2 * margin
-        content_area_h = target_h - 2 * margin
-
-        # Calculate scale to fit content in available area
-        scale_w = content_area_w / w
-        scale_h = content_area_h / h
-        scale = min(scale_w, scale_h)  # Maintain aspect ratio
-
-        # Resize content using high-quality interpolation
-        new_w = int(w * scale)
-        new_h = int(h * scale)
-
-        # Use INTER_LANCZOS4 for high-quality downscaling
+        # Step 3: Scale to fit safe zone
+        safe_w = target_w - (2 * margin)
+        safe_h = target_h - (2 * margin)
+        
+        scale = min(safe_w / cw, safe_h / ch)
+        new_w, new_h = int(cw * scale), int(ch * scale)
+        
         if scale < 1:
-            resized_content = cv2.resize(content, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            resized = cv2.resize(content, (new_w, new_h), interpolation=cv2.INTER_AREA)
         else:
-            resized_content = cv2.resize(content, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
+            resized = cv2.resize(content, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
 
-        # Create target canvas (white)
+        # Step 4: Anchor to RIGID position
+        # We use fixed margins to ensure column 1 always starts at the same X
         normalized = np.full((target_h, target_w), 255, dtype=np.uint8)
-
-        # Calculate position to center content
-        start_x = margin + (content_area_w - new_w) // 2
-        start_y = margin + (content_area_h - new_h) // 2
-
-        # Place content on canvas
-        normalized[start_y:start_y+new_h, start_x:start_x+new_w] = resized_content
+        
+        # FIXED ANCHOR: Top-Left of safe zone
+        # This ensures that even if a page has less text, the existing text 
+        # is aligned with other pages.
+        start_x = margin
+        start_y = margin
+        
+        normalized[start_y:start_y+new_h, start_x:start_x+new_w] = resized
 
         return normalized
 

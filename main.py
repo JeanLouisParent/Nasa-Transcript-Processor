@@ -12,6 +12,7 @@ Usage:
 import shutil
 import sys
 import time
+import json
 from pathlib import Path
 
 import click
@@ -147,7 +148,6 @@ def run_ocr_pipeline(
             ts_index.add_timestamps(page_num, page_timestamps)
 
             (page_dir / f"{page_id}_ocr_raw.txt").write_text(text + "\n", encoding="utf-8")
-            import json
             (page_dir / f"{page_id}.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
             page_duration = time.perf_counter() - page_start
@@ -285,9 +285,9 @@ def info(pdf_name: str):
         raise SystemExit(1)
 
     info = get_pdf_info(pdf_path)
-    # Using rich to display info nicely
     from rich.table import Table
     from rich import box
+    from src.utils.console import console as rich_console
     
     table = Table(title=f"PDF Info: {pdf_path.name}", box=box.ROUNDED)
     table.add_column("Property", style="cyan")
@@ -296,7 +296,7 @@ def info(pdf_name: str):
     for key in ("title", "author", "creator", "producer"):
         table.add_row(key.title(), str(info[key] or '(none)'))
     
-    console.console.print(table)
+    rich_console.print(table)
 
 
 if __name__ == "__main__":

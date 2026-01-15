@@ -74,8 +74,8 @@ class PipelineConfig:
     block_kernel_height: int = 10 # Vertical grouping kernel height
 
     # Column detection ratios (relative to page width)
-    col1_end: float = 0.15    # End of timestamp column
-    col2_end: float = 0.30    # End of speaker column
+    col1_end: float = 0.18    # End of timestamp column (widened)
+    col2_end: float = 0.32    # End of speaker column (widened)
     header_ratio: float = 0.10  # Header region height ratio
 
     # Tesseract-assisted header detection (no output text)

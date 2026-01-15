@@ -39,12 +39,8 @@ console = PipelineConsole()
 def setup_logging(verbose: bool = False) -> None:
     """Configure logging."""
     logger.remove()
-    # If verbose, log to stderr as usual for debugging
-    # If not verbose, only log errors to file or suppress
-    if verbose:
-        logger.add(sys.stderr, level="DEBUG")
-    else:
-        logger.add("pipeline.log", rotation="10 MB", level="INFO")
+    # Log strictly to file to avoid breaking the Rich Live dashboard
+    logger.add("pipeline.log", rotation="10 MB", level="DEBUG" if verbose else "INFO")
 
 
 def resolve_pdf_path(pdf_arg: str, input_dir: Path) -> Path:

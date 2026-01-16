@@ -81,10 +81,11 @@ class PipelineConsole:
         self.ocr_task = self.progress.add_task("OCR Intelligence", total=total_to_ocr)
         self.log("[white]Initializing OCR Phase...[/white]")
 
-    def update_ocr_progress(self, page_num: int, duration: float):
+    def update_ocr_progress(self, page_num: int, duration: float, timing_info: str | None = None):
         self.progress.update(self.ocr_task, advance=1)
         self.stats["ocr_done"] += 1
-        self.log(f"Page {page_num+1:<3} [green]Done[/green] ({duration:.1f}s)")
+        timing_suffix = f" | {timing_info}" if timing_info else ""
+        self.log(f"Page {page_num+1:<3} [green]Done[/green] ({duration:.1f}s){timing_suffix}")
 
     def fail_ocr(self, page_num: int, error: str):
         self.stats["failed"] += 1

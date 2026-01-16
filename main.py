@@ -250,7 +250,16 @@ def run_ocr_pipeline(
                 "classify_s": classify_time,
                 "ocr_total_s": page_duration
             }
-            console.update_ocr_progress(page_num, page_duration)
+            timing_info = (
+                f"extract={pr.extract_s or 0:.3f}s "
+                f"process={pr.process_s or 0:.3f}s "
+                f"layout={pr.layout_s or 0:.3f}s "
+                f"output={pr.output_s or 0:.3f}s "
+                f"ocr={timings[page_num]['ocr_s']:.3f}s "
+                f"classify={timings[page_num]['classify_s']:.3f}s "
+                f"ocr_total={timings[page_num]['ocr_total_s']:.3f}s"
+            )
+            console.update_ocr_progress(page_num, page_duration, timing_info=timing_info)
             
             blocks = payload.get("blocks", [])
             if blocks:

@@ -144,7 +144,11 @@ def run_ocr_pipeline(
                 classify_start = time.perf_counter()
                 ocr_lines_raw = [line for line in text.splitlines() if line.strip()]
                 numbered_text = "\n".join(f"{i+1}|{line}" for i, line in enumerate(ocr_lines_raw))
-                extra = f"There are exactly {len(ocr_lines_raw)} lines. Output exactly {len(ocr_lines_raw)} tagged lines."
+                extra = (
+                    f"There are exactly {len(ocr_lines_raw)} lines. "
+                    f"Output exactly {len(ocr_lines_raw)} tagged lines. "
+                    "Format must be: [TAG] N|original line text."
+                )
                 classified = client.classify_image_text(enhanced, numbered_text, extra_instruction=extra)
                 classify_time = time.perf_counter() - classify_start
 
@@ -160,28 +164,32 @@ def run_ocr_pipeline(
                         content = line.strip()
                         tag_match = tag_re.match(content)
                         if tag_match:
-                            content = content[tag_match.end():].lstrip()
+                            content_after = content[tag_match.end():].lstrip()
+                            num_match = num_re.match(content_after)
+                            if not num_match:
+                                nums = []
+                                break
+                            num = int(num_match.group(1))
+                            text_part = content_after[num_match.end():].strip()
                         else:
                             num_first = num_re.match(content)
-                            if num_first:
-                                after_num = content[num_first.end():].lstrip()
-                                tag_match = tag_re.match(after_num)
-                                if tag_match:
-                                    content = after_num[tag_match.end():].lstrip()
-                                else:
-                                    has_tag = False
-                            else:
+                            if not num_first:
                                 has_tag = False
-                        num_match = num_re.match(content)
-                        if not num_match:
-                            nums = []
-                            break
-                        nums.append(int(num_match.group(1)))
-                        content = content[num_match.end():].strip()
-                        if not content:
+                                nums = []
+                                break
+                            num = int(num_first.group(1))
+                            after_num = content[num_first.end():].lstrip()
+                            tag_match = tag_re.match(after_num)
+                            if not tag_match:
+                                has_tag = False
+                                nums = []
+                                break
+                            text_part = after_num[tag_match.end():].strip()
+                        nums.append(num)
+                        if not text_part:
                             has_text = False
                         tag = tag_match.group(0).strip() if tag_match else ""
-                        normalized_lines.append(f"{tag} {content}".strip())
+                        normalized_lines.append(f"{tag} {text_part}".strip())
                     num_ok = nums == list(range(1, len(ocr_lines_raw) + 1))
                     ok = len(ocr_lines_raw) == len(classified_lines) and has_tag and has_text and num_ok
                     return ("\n".join(normalized_lines) if ok else None, {
@@ -200,7 +208,8 @@ def run_ocr_pipeline(
                     stricter = (
                         "You must output one tagged line for EVERY input line. "
                         "Do not skip or merge any line. "
-                        f"Output exactly {len(ocr_lines_raw)} lines."
+                        f"Output exactly {len(ocr_lines_raw)} lines. "
+                        "Format must be: [TAG] N|original line text."
                     )
                     classified_retry = client.classify_image_text(enhanced, numbered_text, extra_instruction=stricter)
                     normalized_retry, stats_retry = normalize_classified(classified_retry)

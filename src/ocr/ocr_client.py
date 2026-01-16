@@ -43,7 +43,7 @@ CLASSIFY_OCR_PROMPT = (
     "Each OCR line is prefixed with a line number like \"12|\". "
     "Return the SAME number of lines in the SAME order. "
     "Each output line MUST keep the same line number prefix. "
-    "Format must be: [TAG] N|original line text. "
+    "Format must be: [TAG] N|original line text. Do not move the N| prefix. "
     "Prefix EACH line with exactly one tag from: [HEADER], [COMM], [ANNOTATION], [FOOTER], [META]. "
     "Do NOT add or remove lines. Do NOT merge or split lines. "
     "Do NOT paraphrase or rewrite content. "
@@ -55,10 +55,12 @@ CLASSIFY_OCR_PROMPT = (
     "Every line must start with a tag, even if it is a continuation line. "
     "Use [COMM] for all communication lines, including wrapped lines. "
     "Use [ANNOTATION] only for marginal notes (e.g., REV/RFV) or standalone non-comm notes. "
+    "Standalone location lines like \"(TRANQ)\" or \"(COLUMBIA)\" must be tagged [COMM]. "
     "Lines like \"VANGUARD (REV 1)\" or \"CANARY (REV 1)\" must be [ANNOTATION], not [HEADER]. "
     "Any line starting with \"***\" (e.g., \"*** Three asterisks denote clipping of word and phrases.\") must be [FOOTER]. "
     "Even indented/wrapped lines MUST be tagged. "
-    "Example: \"[HEADER] APOLLO 11 AIR-TO-GROUND VOICE TRANSCRIPTION\". "
+    "Correct example: \"[HEADER] 1|APOLLO 11 AIR-TO-GROUND VOICE TRANSCRIPTION\". "
+    "Incorrect example: \"1|[HEADER] APOLLO 11 AIR-TO-GROUND VOICE TRANSCRIPTION\". "
     "Here is the OCR text:\n"
 )
 

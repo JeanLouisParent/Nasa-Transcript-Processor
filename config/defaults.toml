@@ -6,7 +6,7 @@ output_dir = "output"
 
 # OCR Settings
 ocr_url = "http://192.168.1.119:1234"
-ocr_model = "gemma3-12b"  # Vision model to use
+ocr_model = "qwen3-vl-4b"  # Vision model to use
 ocr_prompt = "structured" # "structured" or "plain"
 ocr_postprocess = "classify"  # "none" or "classify"
 ocr_timeout = 120

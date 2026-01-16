@@ -91,7 +91,7 @@ output_dir = "output"
 
 # OCR Settings
 ocr_url = "http://localhost:1234"
-ocr_model = "gemma3-12b"
+ocr_model = "qwen3-vl-4b"
 ocr_timeout = 120
 ocr_max_tokens = 4096
 ocr_prompt = "structured" # "structured" or "plain"

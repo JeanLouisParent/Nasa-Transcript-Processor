@@ -29,7 +29,7 @@ flowchart TD
     ORCH --> Intelligence
     PARSER --> CORR
     Intelligence --> OUT[output_generator.py]
-    CLIENT --> CLASS[ocr_client.classify_image_text()]
+    CLIENT --> CLASS["ocr_client.classify_image_text"]
     CLASS --> PARSER
 ```
 

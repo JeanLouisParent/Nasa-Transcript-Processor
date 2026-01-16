@@ -1,6 +1,6 @@
 # NASA Transcript Processing Pipeline
 
-Pipeline for processing scanned NASA mission transcripts. Performs page-by-page image enhancement, geometric layout detection, and OCR via LM Studio.
+Pipeline for processing scanned NASA mission transcripts. Performs page-by-page image enhancement, geometric layout detection, and OCR via LM Studio with an optional AI-assisted classification pass.
 
 ## Features
 
@@ -10,6 +10,7 @@ Pipeline for processing scanned NASA mission transcripts. Performs page-by-page 
 - **Speaker Location Extraction**: Automatically identifies the origin of the speaker (e.g., `TRANQ`, `COLUMBIA`) and separates it from the dialogue.
 - **Global Timestamp Indexing**: Maintains chronological integrity across the entire document, fixing OCR noise and duplicate timecodes.
 - **LM Studio OCR**: High-performance AI OCR (optimized JPEG payload, <5s/page).
+- **OCR Classification (Optional)**: Second-pass AI tagging using OCR text + image to improve block detection and light OCR cleanup (no hallucination).
 - **Parallel processing**: Multi-threaded image processing with progress tracking.
 
 ## Getting Started
@@ -64,6 +65,12 @@ python main.py process AS11_TEC.PDF --clean
 
 # Overriding OCR URL at runtime
 python main.py process AS11_TEC.PDF --ocr-url http://192.168.1.50:1234
+
+# Enable AI classification pass (text + image)
+python main.py process AS11_TEC.PDF --ocr-postprocess classify
+
+# Print per-page timing breakdowns
+python main.py process AS11_TEC.PDF --pages 1-5 --timing
 ```
 
 ### Checking PDF Info
@@ -73,8 +80,6 @@ python main.py info AS11_TEC.PDF
 ```
 
 ---
-
-## Configuration
 
 ## Configuration
 
@@ -89,6 +94,8 @@ ocr_url = "http://localhost:1234"
 ocr_model = "qwen3-vl-4b"
 ocr_timeout = 120
 ocr_max_tokens = 4096
+ocr_prompt = "structured" # "structured" or "plain"
+ocr_postprocess = "none"  # "none" or "classify"
 
 # Processing Settings
 dpi = 300

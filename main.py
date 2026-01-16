@@ -16,6 +16,7 @@ from pathlib import Path
 
 import click
 import cv2
+import re
 from loguru import logger
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -26,7 +27,7 @@ from src.processors.image_processor import ImageProcessor
 from src.processors.layout_detector import LayoutDetector
 from src.config.mission_config import load_mission_config
 from src.correctors.timestamp_index import GlobalTimestampIndex
-from src.ocr.ocr_client import PLAIN_OCR_PROMPT, LMStudioOCRClient
+from src.ocr.ocr_client import PLAIN_OCR_PROMPT, STRUCTURED_OCR_PROMPT, LMStudioOCRClient
 from src.ocr.ocr_parser import build_page_json, parse_ocr_text
 from src.utils.output_generator import OutputGenerator
 from src.processors.page_extractor import PageExtractor, get_pdf_info
@@ -91,17 +92,22 @@ def run_ocr_pipeline(
     text_replacements: dict[str, str] = None,
     mission_keywords: list[str] = None,
     valid_locations: list[str] = None
-) -> int:
+) -> tuple[int, dict[int, dict[str, float]]]:
     """Run OCR on already processed pages."""
+    prompt = STRUCTURED_OCR_PROMPT
+    if config.ocr_prompt == "plain" or config.ocr_postprocess == "classify":
+        prompt = PLAIN_OCR_PROMPT
+
     client = LMStudioOCRClient(
         base_url=config.ocr_url,
         model=config.ocr_model,
         timeout_s=120,
         max_tokens=4096,
-        prompt=PLAIN_OCR_PROMPT,
+        prompt=prompt,
     )
 
     failures = 0
+    timings: dict[int, dict[str, float]] = {}
     total_to_ocr = sum(1 for pr in page_results if pr.success)
     console.start_ocr(total_to_ocr)
 
@@ -109,6 +115,7 @@ def run_ocr_pipeline(
     index_path = config.output_dir / pdf_path.stem / "timestamps_index.json"
     ts_index = GlobalTimestampIndex.load(index_path)
 
+    previous_block_type = None
     for pr in page_results:
         if not pr.success or not pr.output:
             continue
@@ -126,8 +133,88 @@ def run_ocr_pipeline(
                 raise FileNotFoundError(f"Enhanced image not found: {enhanced_path}")
 
             text = client.ocr_image(enhanced)
-            lines = [line.strip() for line in text.splitlines() if line.strip()]
-            rows = parse_ocr_text(text, page_num, mission_keywords)
+            parsed_text = text
+            if config.ocr_postprocess == "classify":
+                classify_start = time.perf_counter()
+                ocr_lines_raw = [line for line in text.splitlines() if line.strip()]
+                numbered_text = "\n".join(f"{i+1}|{line}" for i, line in enumerate(ocr_lines_raw))
+                extra = f"There are exactly {len(ocr_lines_raw)} lines. Output exactly {len(ocr_lines_raw)} tagged lines."
+                classified = client.classify_image_text(enhanced, numbered_text, extra_instruction=extra)
+                classify_time = time.perf_counter() - classify_start
+
+                def normalize_classified(output_text: str) -> tuple[str | None, dict[str, object]]:
+                    classified_lines = [line for line in output_text.splitlines() if line.strip()]
+                    tag_re = re.compile(r"^\[(HEADER|FOOTER|ANNOTATION|COMM|META)\]\s*", re.IGNORECASE)
+                    num_re = re.compile(r"^(\d+)\|\s*")
+                    has_tag = True
+                    has_text = True
+                    nums = []
+                    normalized_lines = []
+                    for line in classified_lines:
+                        content = line.strip()
+                        tag_match = tag_re.match(content)
+                        if tag_match:
+                            content = content[tag_match.end():].lstrip()
+                        else:
+                            num_first = num_re.match(content)
+                            if num_first:
+                                after_num = content[num_first.end():].lstrip()
+                                tag_match = tag_re.match(after_num)
+                                if tag_match:
+                                    content = after_num[tag_match.end():].lstrip()
+                                else:
+                                    has_tag = False
+                            else:
+                                has_tag = False
+                        num_match = num_re.match(content)
+                        if not num_match:
+                            nums = []
+                            break
+                        nums.append(int(num_match.group(1)))
+                        content = content[num_match.end():].strip()
+                        if not content:
+                            has_text = False
+                        tag = tag_match.group(0).strip() if tag_match else ""
+                        normalized_lines.append(f"{tag} {content}".strip())
+                    num_ok = nums == list(range(1, len(ocr_lines_raw) + 1))
+                    ok = len(ocr_lines_raw) == len(classified_lines) and has_tag and has_text and num_ok
+                    return ("\n".join(normalized_lines) if ok else None, {
+                        "input_lines": len(ocr_lines_raw),
+                        "output_lines": len(classified_lines),
+                        "has_tag": has_tag,
+                        "has_text": has_text,
+                        "num_ok": num_ok
+                    })
+
+                normalized, stats = normalize_classified(classified)
+                if normalized:
+                    parsed_text = normalized
+                    (page_dir / f"{page_id}_ocr_classified.txt").write_text(parsed_text + "\n", encoding="utf-8")
+                else:
+                    stricter = (
+                        "You must output one tagged line for EVERY input line. "
+                        "Do not skip or merge any line. "
+                        f"Output exactly {len(ocr_lines_raw)} lines."
+                    )
+                    classified_retry = client.classify_image_text(enhanced, numbered_text, extra_instruction=stricter)
+                    normalized_retry, stats_retry = normalize_classified(classified_retry)
+                    if normalized_retry:
+                        parsed_text = normalized_retry
+                        (page_dir / f"{page_id}_ocr_classified.txt").write_text(parsed_text + "\n", encoding="utf-8")
+                    else:
+                        (page_dir / f"{page_id}_ocr_classified_rejected.txt").write_text(classified_retry + "\n", encoding="utf-8")
+                        logger.warning(
+                            f"Classifier output rejected for page {page_num + 1}: "
+                            f"input_lines={stats_retry['input_lines']} output_lines={stats_retry['output_lines']} "
+                            f"has_tag={stats_retry['has_tag']} has_text={stats_retry['has_text']} "
+                            f"num_ok={stats_retry['num_ok']}"
+                        )
+                    classify_time = time.perf_counter() - classify_start
+            else:
+                classify_time = 0.0
+
+            lines = [line.strip() for line in parsed_text.splitlines() if line.strip()]
+            rows = parse_ocr_text(parsed_text, page_num, mission_keywords)
             
             # Get last timestamp from previous pages
             initial_ts = ts_index.get_last_timestamp_before(page_num)
@@ -136,7 +223,8 @@ def run_ocr_pipeline(
                 rows, lines, page_num, page_offset, 
                 valid_speakers, text_replacements, 
                 mission_keywords, valid_locations,
-                initial_ts=initial_ts
+                initial_ts=initial_ts,
+                previous_block_type=previous_block_type
             )
 
             # Update index
@@ -151,8 +239,19 @@ def run_ocr_pipeline(
             (page_dir / f"{page_id}.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
             page_duration = time.perf_counter() - page_start
+            timings[page_num] = {
+                "ocr_s": page_duration - classify_time,
+                "classify_s": classify_time,
+                "ocr_total_s": page_duration
+            }
             console.update_ocr_progress(page_num, page_duration)
             
+            blocks = payload.get("blocks", [])
+            if blocks:
+                previous_block_type = blocks[-1].get("type")
+            else:
+                previous_block_type = None
+
             # Small pause to let the OCR server breathe/cleanup VRAM
             time.sleep(0.5)
 
@@ -162,7 +261,7 @@ def run_ocr_pipeline(
             logger.error(f"OCR failed for page {page_num + 1}: {e}")
 
     ts_index.save()
-    return failures
+    return failures, timings
 
 
 @click.group()
@@ -178,8 +277,29 @@ def cli():
 @click.option("--clean", is_flag=True, help="Remove existing output first")
 @click.option("--no-ocr", is_flag=True, help="Skip OCR step")
 @click.option("--ocr-url", help="LM Studio URL (overrides config)")
+@click.option(
+    "--ocr-prompt",
+    type=click.Choice(["structured", "plain"], case_sensitive=False),
+    help="OCR prompt mode (overrides config)"
+)
+@click.option(
+    "--ocr-postprocess",
+    type=click.Choice(["none", "classify"], case_sensitive=False),
+    help="Post-process OCR text with classifier (overrides config)"
+)
+@click.option("--timing", is_flag=True, help="Print per-page timing breakdowns")
 @click.option("-v", "--verbose", is_flag=True, help="Verbose logging")
-def process(pdf_name: str, pages: str, clean: bool, no_ocr: bool, ocr_url: str, verbose: bool):
+def process(
+    pdf_name: str,
+    pages: str,
+    clean: bool,
+    no_ocr: bool,
+    ocr_url: str,
+    ocr_prompt: str,
+    ocr_postprocess: str,
+    timing: bool,
+    verbose: bool
+):
     """
     Process a PDF document.
     """
@@ -189,6 +309,10 @@ def process(pdf_name: str, pages: str, clean: bool, no_ocr: bool, ocr_url: str, 
     global_cfg = load_global_config(Path("config/defaults.toml"))
     if ocr_url:
         global_cfg.ocr_url = ocr_url
+    if ocr_prompt:
+        global_cfg.ocr_prompt = ocr_prompt.lower()
+    if ocr_postprocess:
+        global_cfg.ocr_postprocess = ocr_postprocess.lower()
 
     # Resolve PDF
     pdf_path = resolve_pdf_path(pdf_name, global_cfg.input_dir)
@@ -255,7 +379,7 @@ def process(pdf_name: str, pages: str, clean: bool, no_ocr: bool, ocr_url: str, 
         valid_speakers = mission_cfg.layout_overrides.get("valid_speakers")
         valid_locations = mission_cfg.layout_overrides.get("valid_locations")
         
-        ocr_failures = run_ocr_pipeline(
+        ocr_failures, ocr_timings = run_ocr_pipeline(
             pdf_path, 
             global_cfg, 
             result.page_results, 
@@ -265,6 +389,22 @@ def process(pdf_name: str, pages: str, clean: bool, no_ocr: bool, ocr_url: str, 
             mission_keywords,
             valid_locations
         )
+        if timing:
+            for pr in result.page_results:
+                if not pr.success:
+                    continue
+                page_no = pr.page_num + 1
+                ocr_t = ocr_timings.get(pr.page_num, {})
+                print(
+                    f"Page {page_no:04d} timings: "
+                    f"extract={pr.extract_s or 0:.3f}s "
+                    f"process={pr.process_s or 0:.3f}s "
+                    f"layout={pr.layout_s or 0:.3f}s "
+                    f"output={pr.output_s or 0:.3f}s "
+                    f"ocr={ocr_t.get('ocr_s', 0):.3f}s "
+                    f"classify={ocr_t.get('classify_s', 0):.3f}s "
+                    f"ocr_total={ocr_t.get('ocr_total_s', 0):.3f}s"
+                )
     
     console.finish()
 

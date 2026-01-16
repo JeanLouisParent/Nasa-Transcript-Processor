@@ -29,6 +29,8 @@ flowchart TD
     ORCH --> Intelligence
     PARSER --> CORR
     Intelligence --> OUT[output_generator.py]
+    CLIENT --> CLASS[ocr_client.classify_image_text()]
+    CLASS --> PARSER
 ```
 
 ## Module Responsibilities
@@ -148,9 +150,10 @@ config = load_mission_config(Path("config"), "AS11_TEC.PDF")
 - `OCRResponseError`: Invalid responses
 
 **Features**:
-- Automatic retry with different image token formats
-- Fallback to OpenAI-style image_url format
+- JPEG payload optimization (quality 85)
+- OpenAI-compatible image_url format
 - Configurable timeout (default: 120s)
+- Optional second-pass classification using OCR text + image
 
 ### ocr_parser.py
 **Purpose**: Parse OCR text into structured blocks and apply intelligent corrections
@@ -160,6 +163,7 @@ config = load_mission_config(Path("config"), "AS11_TEC.PDF")
 - `TextCorrector`: Lexicon-based spelling and context engine.
 - `TimestampCorrector`: Timecode recovery and chronological validation.
 - `SpeakerCorrector`: Standardizes callers based on mission roster.
+ - Location extraction for parenthesized station identifiers.
 
 **Post-Processing Details**: See [POST_PROCESSING.md](./POST_PROCESSING.md) for logic and formulas.
 
@@ -211,7 +215,8 @@ ProcessingResult (grayscale, normalized)
     ▼ LayoutDetector.detect()              ▼ LMStudioOCRClient.ocr_image()
 LayoutResult (blocks with classification)  Raw OCR text
     │                                      │
-    ▼ OutputGenerator.generate()           ▼ parse_ocr_text() + build_page_json()
+    ▼ OutputGenerator.generate()           ▼ classify_image_text() (optional)
+                                           ▼ parse_ocr_text() + build_page_json()
 PageOutput (PNG, PDF files)                JSON file
 ```
 

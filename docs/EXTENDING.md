@@ -179,7 +179,7 @@ client = LMStudioOCRClient(
 ### Custom Prompt
 
 ```python
-from src.ocr_client import LMStudioOCRClient
+from src.ocr.ocr_client import LMStudioOCRClient
 
 client = LMStudioOCRClient(
     base_url="http://localhost:1234",
@@ -187,6 +187,16 @@ client = LMStudioOCRClient(
     prompt="Extract text preserving exact layout and spacing.",
 )
 ```
+
+### Optional Classification Pass
+
+Enable the second-pass classifier (OCR text + image) via config:
+
+```toml
+ocr_postprocess = "classify"
+```
+
+The classifier output is strictly validated for line count/order. If invalid, the parser falls back to the raw OCR text.
 
 ### Custom Parser
 
@@ -252,7 +262,7 @@ def test_process_page():
 from pathlib import Path
 from src.config import PipelineConfig
 from src.pipeline import TranscriptPipeline
-from src.ocr_client import LMStudioOCRClient
+from src.ocr.ocr_client import LMStudioOCRClient
 from src.ocr_parser import parse_ocr_text, build_page_json
 
 # Process images
@@ -272,6 +282,7 @@ for page_result in result.page_results:
         img = cv2.imread(str(page_result.output.enhanced_image), cv2.IMREAD_GRAYSCALE)
 
         # OCR
+        # Optional classification pass (text + image)
         text = client.ocr_image(img)
         rows = parse_ocr_text(text, page_result.page_num)
         lines = [l.strip() for l in text.splitlines() if l.strip()]

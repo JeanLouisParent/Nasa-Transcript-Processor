@@ -13,10 +13,10 @@ from src.correctors.text_corrector import TextCorrector
 from src.correctors.timestamp_corrector import TimestampCorrector
 
 # Regex patterns for transcript parsing
-TS_CHARS = r"[\dOI'I\)\(]\[C]"
-TIMESTAMP_STRICT_RE = re.compile(rf"^{{TS_CHARS}}{{2}}(?:\s+{{TS_CHARS}}{{2}}){{2,3}}$")
-TIMESTAMP_PREFIX_RE = re.compile(rf"^({{TS_CHARS}}{{2}}(?:\s+{{TS_CHARS}}{{2}}){{2,3}})\b")
-TIMESTAMP_EMBEDDED_RE = re.compile(rf"\s+({{TS_CHARS}}{{2}}(?:\s+{{TS_CHARS}}{{2}}){{2,3}})\b")
+TS_CHARS = r"[\dOI'()]"
+TIMESTAMP_STRICT_RE = re.compile(rf"^{TS_CHARS}{{2}}(?:\s+{TS_CHARS}{{2}}){{2,3}}$")
+TIMESTAMP_PREFIX_RE = re.compile(rf"^({TS_CHARS}{{2}}(?:\s+{TS_CHARS}{{2}}){{2,3}})\b")
+TIMESTAMP_EMBEDDED_RE = re.compile(rf"\s+({TS_CHARS}{{2}}(?:\s+{TS_CHARS}{{2}}){{2,3}})\b")
 REV_EMBEDDED_RE = re.compile(r"(\([RE][FV]\s+\d+\))", re.IGNORECASE)
 
 SPEAKER_LINE_RE = re.compile(r"^[A-Z][A-Z0-9]{1,6}(?:\s*\([A-Z0-9]+\))?$")
@@ -26,6 +26,16 @@ HEADER_PAGE_RE = re.compile(r"\bPAGE\s*(\d{1,4})\b", re.IGNORECASE)
 HEADER_TAPE_RE = re.compile(r"\bTAPE\s*([0-9]{1,2}\s*/\s*[0-9]{1,2})\b", re.IGNORECASE)
 HEADER_KEYWORDS = ("GOSS", "NET", "TAPE", "PAGE", "APOLLO", "AIR-TO-GROUND")
 END_OF_TAPE_KEYWORD = "END OF TAPE"
+TRANSITION_KEYWORDS = (
+    "REST PERIOD",
+    "NO COMMUNICATIONS",
+    "NO COMMUNICATION",
+    "LOSS OF SIGNAL",
+    "AOS",
+    "LOS",
+    "SILENCE",
+)
+LINE_TAG_RE = re.compile(r"^\[(HEADER|FOOTER|ANNOTATION|COMM|META)\]\s*", re.IGNORECASE)
 
 
 def normalize_whitespace(text: str) -> str:
@@ -37,14 +47,25 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None)
     """
     Parse plain OCR output into structured rows.
     """
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    raw_lines = [line.strip() for line in text.splitlines() if line.strip()]
+    lines = []
+    for raw in raw_lines:
+        tag_match = LINE_TAG_RE.match(raw)
+        forced_type = None
+        if tag_match:
+            forced_type = tag_match.group(1).lower()
+            raw = raw[tag_match.end():].strip()
+        if raw:
+            lines.append({"text": raw, "forced": forced_type})
     
     # Pre-process lines iteratively to split embedded components
     current_processing = lines
     final_lines = []
     
     while current_processing:
-        line = current_processing.pop(0)
+        entry = current_processing.pop(0)
+        line = entry["text"]
+        forced_type = entry["forced"]
         match = None
         
         # If line starts with a timestamp, search for splits after the initial timestamp zone
@@ -73,16 +94,20 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None)
             start = match.start()
             part1 = line[:start].strip()
             part2 = line[start:].strip()
-            if part1: final_lines.append(part1)
-            if part2: current_processing.insert(0, part2)
+            if part1: final_lines.append({"text": part1, "forced": forced_type})
+            if part2: current_processing.insert(0, {"text": part2, "forced": forced_type})
         else:
-            final_lines.append(line)
+            final_lines.append({"text": line, "forced": forced_type})
     
     lines = final_lines
     if not lines: return []
 
     # Find first timestamp to identify header zone
-    first_ts_idx = next((i for i, l in enumerate(lines) if TIMESTAMP_STRICT_RE.match(l) or TIMESTAMP_PREFIX_RE.match(l)), None)
+    first_ts_idx = next(
+        (i for i, entry in enumerate(lines)
+         if TIMESTAMP_STRICT_RE.match(entry["text"]) or TIMESTAMP_PREFIX_RE.match(entry["text"])),
+        None
+    )
 
     rows = []
     line_index = 0
@@ -90,27 +115,94 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None)
     pending_speaker = ""
     pending_location = ""
     pending_text = []
+    pending_force_comm = False
 
     def flush_pending():
-        nonlocal pending_ts, pending_speaker, pending_location, pending_text, line_index
+        nonlocal pending_ts, pending_speaker, pending_location, pending_text, line_index, pending_force_comm
         if not pending_ts and not pending_speaker and not pending_text: return
         line_index += 1
         rows.append({
             "page": page_num + 1, "line": line_index,
-            "type": "comm" if pending_ts else "text",
+            "type": "comm" if (pending_ts or pending_force_comm) else "text",
             "timestamp": pending_ts, "speaker": pending_speaker,
             "location": pending_location,
             "text": " ".join(pending_text).strip(),
         })
         pending_ts = ""; pending_speaker = ""; pending_location = ""; pending_text = []
+        pending_force_comm = False
 
-    for idx, line in enumerate(lines):
+    prev_comm_like = False
+    saw_comm_or_ts = False
+    for idx, entry in enumerate(lines):
+        line = entry["text"]
+        forced_type = entry["forced"]
         upper = line.upper()
+        has_lower = any(c.islower() for c in line)
+        location_only = LOCATION_PAREN_RE.match(line)
+
+        if forced_type == "annotation" and prev_comm_like and has_lower and "(REV" not in upper and "(RFV" not in upper:
+            forced_type = "comm"
+
+        if forced_type == "comm" and not saw_comm_or_ts:
+            if not TIMESTAMP_PREFIX_RE.match(line) and not TIMESTAMP_STRICT_RE.match(line):
+                pending_text.append(line)
+                continue
+
+        if location_only:
+            location_value = location_only.group(1).strip()
+            if pending_ts:
+                pending_location = location_value
+                continue
+            if rows and rows[-1].get("type") == "comm" and not rows[-1].get("location"):
+                rows[-1]["location"] = location_value
+                continue
+
+        if forced_type is None and line.lstrip().startswith("***"):
+            flush_pending()
+            line_index += 1
+            rows.append({
+                "page": page_num + 1, "line": line_index,
+                "type": "footer",
+                "timestamp": "", "speaker": "", "location": "", "text": line,
+            })
+            prev_comm_like = False
+            continue
+
+        if forced_type is None and fuzzy_find(line, END_OF_TAPE_KEYWORD):
+            flush_pending()
+            line_index += 1
+            rows.append({
+                "page": page_num + 1, "line": line_index,
+                "type": "meta",
+                "timestamp": "", "speaker": "", "location": "", "text": line,
+            })
+            prev_comm_like = False
+            continue
+
+        if forced_type == "header" and ("(REV" in upper or "(RFV" in upper):
+            forced_type = "annotation"
+
+        if forced_type in ("header", "footer", "annotation", "meta"):
+            flush_pending()
+            line_index += 1
+            rows.append({
+                "page": page_num + 1, "line": line_index,
+                "type": "meta" if forced_type == "meta" else forced_type,
+                "timestamp": "", "speaker": "", "location": "", "text": line,
+            })
+            prev_comm_like = forced_type == "annotation" and has_lower
+            continue
+
+        if forced_type == "comm":
+            pending_force_comm = True
+            saw_comm_or_ts = True
 
         # Standalone timestamp
         if TIMESTAMP_STRICT_RE.match(line):
             flush_pending()
             pending_ts = line
+            prev_comm_like = True
+            saw_comm_or_ts = True
             continue
 
         # Prefix timestamp
@@ -131,23 +223,31 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None)
                     elif tokens and re.match(r"^\([^)]+\)$", tokens[0]):
                         pending_location = tokens.pop(0).strip("()")
                 if tokens: pending_text.append(" ".join(tokens))
+            prev_comm_like = True
+            saw_comm_or_ts = True
             continue
 
-        # Annotations
-        is_header = not pending_ts and first_ts_idx is not None and idx <= first_ts_idx and any(fuzzy_find(line, kw) for kw in HEADER_KEYWORDS)
-        is_footer = not pending_ts and ("***" in line or "ASTERISK" in upper)
-        is_annotation = "(REV" in upper or "(RFV" in upper or (mission_keywords and not pending_ts and any(fuzzy_find(line, kw) for kw in mission_keywords))
-        is_end_of_tape = fuzzy_find(line, END_OF_TAPE_KEYWORD)
+        if forced_type is None:
+            # Annotations
+            is_header = not pending_ts and first_ts_idx is not None and idx <= first_ts_idx and any(fuzzy_find(line, kw) for kw in HEADER_KEYWORDS)
+            is_footer = not pending_ts and (
+                "***" in line
+                or "ASTERISK" in upper
+                or (idx >= len(lines) - 3 and (HEADER_PAGE_RE.search(upper) or HEADER_TAPE_RE.search(upper)))
+            )
+            is_annotation = "(REV" in upper or "(RFV" in upper or (mission_keywords and not pending_ts and any(fuzzy_find(line, kw) for kw in mission_keywords))
+            is_end_of_tape = fuzzy_find(line, END_OF_TAPE_KEYWORD)
+            is_transition = any(fuzzy_find(line, kw) for kw in TRANSITION_KEYWORDS)
 
-        if is_header or is_footer or is_annotation or is_end_of_tape:
-            flush_pending()
-            line_index += 1
-            rows.append({
-                "page": page_num + 1, "line": line_index,
-                "type": "meta" if is_end_of_tape else ("header" if is_header else ("footer" if is_footer else "annotation")),
-                "timestamp": "", "speaker": "", "location": "", "text": line,
-            })
-            continue
+            if is_header or is_footer or is_annotation or is_end_of_tape or is_transition:
+                flush_pending()
+                line_index += 1
+                rows.append({
+                    "page": page_num + 1, "line": line_index,
+                    "type": "meta" if (is_end_of_tape or is_transition) else ("header" if is_header else ("footer" if is_footer else "annotation")),
+                    "timestamp": "", "speaker": "", "location": "", "text": line,
+                })
+                continue
 
         if pending_ts:
             # Check for location tag at the start of the line
@@ -161,9 +261,12 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None)
                 pending_speaker = f"{pending_speaker} {line}".strip() if pending_speaker else line
                 continue
             pending_text.append(line)
+            prev_comm_like = True
+            saw_comm_or_ts = True
             continue
 
         pending_text.append(line)
+        prev_comm_like = prev_comm_like or pending_force_comm
 
     flush_pending()
     return rows
@@ -204,7 +307,18 @@ def clean_trailing_footer(text: str) -> str:
     return text.strip()
 
 
-def build_page_json(rows: list[dict], lines: list[str], page_num: int, page_offset: int = 0, valid_speakers: list[str] = None, text_replacements: dict[str, str] = None, mission_keywords: list[str] = None, valid_locations: list[str] = None, initial_ts: str = None) -> dict:
+def build_page_json(
+    rows: list[dict],
+    lines: list[str],
+    page_num: int,
+    page_offset: int = 0,
+    valid_speakers: list[str] = None,
+    text_replacements: dict[str, str] = None,
+    mission_keywords: list[str] = None,
+    valid_locations: list[str] = None,
+    initial_ts: str = None,
+    previous_block_type: str = None
+) -> dict:
     header_info = extract_header_metadata(lines, page_num, page_offset)
     blocks = []
     for row in rows:
@@ -224,6 +338,9 @@ def build_page_json(rows: list[dict], lines: list[str], page_num: int, page_offs
             blocks[-1]["text"] = (blocks[-1]["text"] + " " + block["text"]).strip()
         else:
             blocks.append(block)
+
+    if blocks and blocks[0]["type"] == "continuation" and previous_block_type in ("comm", "continuation"):
+        blocks[0]["continuation_from_prev"] = True
     
     # Final cleanup of footers and locations on merged text
     for block in blocks:

@@ -242,7 +242,7 @@ COMM blocks also show sub-columns:
 
 **Modules**: `ocr_client.py`, `ocr_parser.py`
 
-Sends enhanced images to LM Studio for text extraction.
+Sends enhanced images to LM Studio for text extraction. Optionally runs a second AI pass to tag each line using the OCR text plus the page image.
 
 ### OCR Client
 
@@ -260,9 +260,19 @@ Uses OpenAI-compatible API with optimized workflow for speed:
 | Timeout | 120s | Request timeout |
 | Max tokens | 4096 | Response limit |
 
+### Optional Classification Pass
+
+When `ocr_postprocess = "classify"`:
+
+- **Input**: OCR text (line-numbered) + the page image.
+- **Output**: Same number of lines, same order, each prefixed with a tag:
+  `HEADER`, `COMM`, `ANNOTATION`, `FOOTER`, `META`.
+- **Guardrails**: The result is rejected if the line count or numbering does not match.
+
+
 ### OCR Parser
 
-Parses plain text into structured blocks.
+Parses plain text into structured blocks. When classification is enabled, it consumes tagged lines to improve block labeling, footer detection, and annotation handling.
 
 **Detection patterns**:
 
@@ -276,10 +286,10 @@ Parses plain text into structured blocks.
 
 ```json
 {
-  "page": {
-    "number": 42,
+  "header": {
+    "page": 42,
     "tape": "1/2",
-    "apollo": "APOLLO 11 AIR-TO-GROUND VOICE TRANSCRIPTION"
+    "is_apollo_title": true
   },
   "blocks": [
     {
@@ -290,13 +300,16 @@ Parses plain text into structured blocks.
     },
     {
       "type": "continuation",
-      "text": "We copy."
+      "text": "We copy.",
+      "continuation_from_prev": true
     }
   ]
 }
 ```
 
 **Raw text** (`*_ocr_raw.txt`): Unprocessed OCR output.
+**Classified text** (`*_ocr_classified.txt`): Tagged OCR lines (only when classification is accepted).
+**Rejected classification** (`*_ocr_classified_rejected.txt`): Classifier output that failed validation.
 
 ### Skip OCR
 

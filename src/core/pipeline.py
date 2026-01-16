@@ -12,6 +12,7 @@ For AI Agents:
 """
 
 import threading
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -45,6 +46,10 @@ class PageResult:
     output: PageOutput | None = None
     success: bool = True
     error: str | None = None
+    extract_s: float | None = None
+    process_s: float | None = None
+    layout_s: float | None = None
+    output_s: float | None = None
 
 
 @dataclass
@@ -146,25 +151,33 @@ class TranscriptPipeline:
             # Step 1: Extract page image and PDF
             # Thread-safe extraction
             with self._extract_lock:
+                extract_start = time.perf_counter()
                 image = self.extractor.extract_page_image(page_num)
                 raw_pdf_path = self.output_generator.get_raw_pdf_path(page_num)
                 self.extractor.extract_page_pdf(page_num, raw_pdf_path)
+                result.extract_s = time.perf_counter() - extract_start
 
             # Step 2: Process image
+            process_start = time.perf_counter()
             processing_result = self.processor.process(image)
             result.processing = processing_result
+            result.process_s = time.perf_counter() - process_start
 
             # Step 3: Detect layout (includes block classification)
+            layout_start = time.perf_counter()
             layout_result = self.layout_detector.detect(processing_result.image)
             result.layout = layout_result
+            result.layout_s = time.perf_counter() - layout_start
 
             # Step 4: Generate outputs
+            output_start = time.perf_counter()
             output = self.output_generator.generate(
                 page_num=page_num,
                 enhanced_image=processing_result.image,
                 layout=layout_result
             )
             result.output = output
+            result.output_s = time.perf_counter() - output_start
 
             result.success = True
             logger.debug(f"Successfully processed page {page_num + 1}")

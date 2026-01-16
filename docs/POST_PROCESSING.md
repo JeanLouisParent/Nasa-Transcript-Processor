@@ -6,7 +6,7 @@ This document details the logic used to transform raw, noisy OCR output into str
 
 The post-processing stage is where the "intelligence" of the pipeline resides. It handles layout reconstruction, error correction, and semantic enrichment through four main engines:
 
-1.  **Block Parser**: Recovers the logical structure (Dialogue, Annotations, Headers).
+1.  **Block Parser**: Recovers the logical structure (Dialogue, Annotations, Headers) and can consume AI-tagged lines.
 2.  **Timestamp Engine**: Fixes OCR noise in timecodes and ensures chronological flow.
 3.  **Speaker Corrector**: Standardizes caller IDs based on mission-specific rosters.
 4.  **Text Intelligence (Lexicon)**: Corrects spelling using visual similarity and mission context.
@@ -36,13 +36,17 @@ graph TD
 
 ### Block Classification & Metadata
 
-Once lines are separated, they are classified based on context:
+Once lines are separated, they are classified based on context. This happens via two paths:
+
+- **AI tags (optional)**: When classification is enabled, each line is explicitly tagged as `HEADER`, `COMM`, `ANNOTATION`, `FOOTER`, or `META`.
+- **Heuristic fallback**: If tags are absent or invalid, the parser uses keyword and layout heuristics.
 
 - **Comm**: A block starting with a timestamp.
-- **Location Extraction**: The parser looks for parentheses next to or below the speaker (e.g., `(TRANQ)`, `(EAGLE)`). This is extracted into a dedicated `location` field in the JSON.
-- **Annotation**: Isolated mission keywords or revision markers.
-- **Header/Footer**: Page/Tape info or specialized NASA markers.
-- **Continuation**: Dialogue lines following a `Comm` block.
+- **Location Extraction**: Parenthesized lines like `(TRANQ)` are treated as locations and attached to the current or immediately preceding COMM block.
+- **Annotation**: Isolated mission keywords or revision markers (e.g., `(REV 1)`).
+- **Header/Footer**: Page/Tape info or specialized NASA markers; `***` lines are treated as footers.
+- **Meta/Transition**: Lines such as `END OF TAPE` or `REST PERIOD - NO COMMUNICATIONS`.
+- **Continuation**: Only used when a page begins with text lacking timestamp/speaker and the previous page ended with COMM.
 
 **Smart Merging**: Consecutive `Continuation` blocks are automatically merged into a single paragraph to ensure fluid readability in the final JSON.
 

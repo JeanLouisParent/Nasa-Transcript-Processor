@@ -95,7 +95,7 @@ ocr_model = "qwen3-vl-4b"
 ocr_timeout = 120
 ocr_max_tokens = 4096
 ocr_prompt = "structured" # "structured" or "plain"
-ocr_postprocess = "none"  # "none" or "classify"
+ocr_postprocess = "classify"  # "none" or "classify"
 
 # Processing Settings
 dpi = 300

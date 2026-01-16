@@ -248,7 +248,7 @@ Uses OpenAI-compatible API with optimized workflow for speed:
 
 ### Optional Classification Pass
 
-When `ocr_postprocess = "classify"`:
+When `ocr_postprocess = "classify"` (default):
 
 - **Input**: OCR text (line-numbered) + the page image.
 - **Output**: Same number of lines, same order, each prefixed with a tag:

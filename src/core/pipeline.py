@@ -173,8 +173,7 @@ class TranscriptPipeline:
             output_start = time.perf_counter()
             output = self.output_generator.generate(
                 page_num=page_num,
-                enhanced_image=processing_result.image,
-                layout=layout_result
+                enhanced_image=processing_result.image
             )
             result.output = output
             result.output_s = time.perf_counter() - output_start

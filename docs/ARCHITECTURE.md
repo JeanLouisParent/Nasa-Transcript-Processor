@@ -132,7 +132,6 @@ config = load_mission_config(Path("config"), "AS11_TEC.PDF")
 **Outputs per page**:
 - `*_raw.pdf`: Single page extracted from source
 - `*_enhanced.png`: Processed grayscale image
-- `*_blocks.png`: Image with colored block overlays
 
 **Block Colors** (BGR):
 - HEADER: Blue (255, 150, 50)

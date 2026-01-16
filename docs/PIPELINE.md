@@ -219,22 +219,6 @@ Generates output files for each processed page.
 | ---------------- | --------------------------- |
 | `*_raw.pdf`      | Single page from source PDF |
 | `*_enhanced.png` | Processed grayscale image   |
-| `*_blocks.png`   | Image with block overlays   |
-
-### Block Visualization
-
-| Block Type | Color                            |
-| ---------- | -------------------------------- |
-| HEADER     | Blue                             |
-| FOOTER     | Gray                             |
-| ANNOTATION | Magenta                          |
-| COMM       | Green outline + light green fill |
-
-COMM blocks also show sub-columns:
-
-- Timestamp: Yellow
-- Speaker: Cyan
-- Text: Red
 
 ---
 

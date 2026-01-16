@@ -86,7 +86,7 @@ COLORS = {
 }
 ```
 
-And update `_create_blocks_image()` to handle the new type.
+Blocks overlays are no longer generated.
 
 ---
 

@@ -15,7 +15,7 @@ class GlobalConfig:
     input_dir: Path = Path("input")
     output_dir: Path = Path("output")
     ocr_url: str = "http://localhost:1234"
-    ocr_model: str = "qwen3-vl-4b"
+    ocr_model: str = "gemma3-12b"
     ocr_prompt: str = "structured"
     ocr_postprocess: str = "classify"
     dpi: int = 300

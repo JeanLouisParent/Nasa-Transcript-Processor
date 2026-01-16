@@ -8,15 +8,13 @@ This document describes each stage of the processing pipeline.
 %%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#0B3D91', 'primaryTextColor': '#fff', 'primaryBorderColor': '#FC3D21', 'lineColor': '#8BA1B4', 'secondaryColor': '#8BA1B4', 'tertiaryColor': '#fff'}}}%%
 flowchart LR
     A[Extraction] --> B[Processing]
-    B --> C[Detection]
-    C --> D[Generation]
-    D --> E[OCR & Intelligence]
+    B --> C[Generation]
+    C --> D[OCR & Intelligence]
     
     style A fill:#0B3D91,stroke:#FC3D21,color:#fff
     style B fill:#0B3D91,stroke:#FC3D21,color:#fff
     style C fill:#0B3D91,stroke:#FC3D21,color:#fff
-    style D fill:#0B3D91,stroke:#FC3D21,color:#fff
-    style E fill:#FC3D21,stroke:#0B3D91,color:#fff
+    style D fill:#FC3D21,stroke:#0B3D91,color:#fff
 ```
 
 ---
@@ -51,7 +49,7 @@ Extracts individual pages from PDF as high-resolution images.
 
 **Module**: `image_processor.py`
 
-Enhances scanned images for better OCR and layout detection.
+Enhances scanned images for better OCR.
 
 ### 2.1 Grayscale Conversion
 
@@ -137,79 +135,9 @@ Enhance text edges for better readability.
 
 ---
 
-## Stage 3: Layout Detection
+## Stage 3: Output Generation
 
-**Module**: `layout_detector.py`
-
-Detects text blocks using geometric analysis (no OCR).
-
-### 3.1 Binarization
-
-Convert to binary using adaptive threshold.
-
-```python
-binary = cv2.adaptiveThreshold(image, 255,
-    cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-    cv2.THRESH_BINARY_INV, blockSize=15, C=5)
-```
-
-### 3.2 Text Connection
-
-Connect characters into blocks using morphological dilation.
-
-**Horizontal** (connect characters in lines):
-
-```python
-h_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (50, 1))
-```
-
-**Vertical** (connect lines in blocks):
-
-```python
-v_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 10))
-```
-
-**Parameters**:
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `line_kernel_width` | 50 | Horizontal connection |
-| `line_kernel_height` | 1 | |
-| `block_kernel_width` | 5 | Vertical connection |
-| `block_kernel_height` | 10 | |
-
-### 3.3 Block Detection
-
-Find contours, filter by size, merge overlaps.
-
-**Parameters**:
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `min_block_area` | 1000 px² | Minimum block size |
-| `max_block_area_ratio` | 0.9 | Maximum as ratio of page |
-
-### 3.4 Block Classification
-
-Classify blocks using geometric heuristics.
-
-**Block Types**:
-
-- **HEADER**: Top zone, network/page/tape markers
-- **FOOTER**: Bottom zone, asterisk lines
-- **ANNOTATION**: Centered, isolated vertically
-- **COMM**: Triplet structure (timestamp | speaker | text)
-
-**Parameters**:
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `col1_end` | 0.15 | Timestamp/speaker boundary |
-| `col2_end` | 0.30 | Speaker/text boundary |
-| `header_ratio` | 0.10 | Header zone height |
-
----
-
-## Stage 4: Output Generation
-
-**Module**: `output_generator.py`
+**Module**: `utils/output_generator.py`
 
 Generates output files for each processed page.
 
@@ -220,9 +148,14 @@ Generates output files for each processed page.
 | `*_raw.pdf`      | Single page from source PDF |
 | `*_enhanced.png` | Processed grayscale image   |
 
+Outputs are organized per page:
+- `output/<PDF_STEM>/Page_NNN/` contains the JSON and subfolders
+- `output/<PDF_STEM>/Page_NNN/assets/` stores the raw PDF + enhanced image
+- `output/<PDF_STEM>/Page_NNN/ocr/` stores OCR artifacts (`*_ocr_raw.txt`, etc.)
+
 ---
 
-## Stage 5: OCR (Optional)
+## Stage 4: OCR (Optional)
 
 **Modules**: `ocr_client.py`, `ocr_parser.py`
 
@@ -234,10 +167,9 @@ Prompt text is loaded from `config/prompts.toml` when present. See `docs/PROMPTS
 
 Uses OpenAI-compatible API with optimized workflow for speed:
 
-1. **Compression**: Encodes image as JPEG (85% quality) to minimize payload
-2. **Standard First**: Tries standard OpenAI `image_url` format (fastest)
-3. **Fallback**: Retries with various vision tokens (`<image>`, `<img>`) if standard fails
-4. **Validation**: Checks for minimum alphabetic content (2+ chars) to avoid false negatives
+1. **Compression**: Encodes image as JPEG (95% quality) to preserve faint text
+2. **Standard Format**: Uses OpenAI `image_url` format for the vision payload
+3. **Validation**: Logs a warning on empty OCR output but does not hard-fail
 
 **Configuration**:
 | Parameter | Default | Description |
@@ -246,25 +178,20 @@ Uses OpenAI-compatible API with optimized workflow for speed:
 | Timeout | 120s | Request timeout |
 | Max tokens | 4096 | Response limit |
 
-### Optional Classification Pass
-
-When `ocr_postprocess = "classify"`:
-
-- **Input**: OCR text (line-numbered) + the page image.
-- **Output**: Same number of lines, same order, each prefixed with a tag:
-  `HEADER`, `COMM`, `ANNOTATION`, `FOOTER`, `META`.
-- **Guardrails**: The result is rejected if the line count or numbering does not match.
-
-
 ### OCR Parser
 
-Parses plain text into structured blocks. When classification is enabled, it consumes tagged lines to improve block labeling, footer detection, and annotation handling.
+Parses plain text into structured blocks using heuristics.
 
 **Detection patterns**:
 
 - Timestamp: `\d{2} \d{2} \d{2} \d{1,2}`
 - Speaker: `[A-Z][A-Z0-9]{1,6}`
 - Header keywords: GOSS, NET, TAPE, PAGE, APOLLO
+
+### Right-Column OCR Fill
+
+When `ocr_text_column_pass = true`, a second OCR pass is run on a cropped right-side text column. Missing `comm` text is filled from this pass and merged into adjacent lines when the continuation starts with punctuation or lowercase.
+
 
 ### Output Format
 
@@ -293,9 +220,8 @@ Parses plain text into structured blocks. When classification is enabled, it con
 }
 ```
 
-**Raw text** (`*_ocr_raw.txt`): Unprocessed OCR output.
-**Classified text** (`*_ocr_classified.txt`): Tagged OCR lines (only when classification is accepted).
-**Rejected classification** (`*_ocr_classified_rejected.txt`): Classifier output that failed validation.
+**Raw text** (`ocr/*_ocr_raw.txt`): Unprocessed OCR output.
+**Text column OCR** (`ocr/*_ocr_textcol.txt`): Right-column OCR output (if enabled and used).
 
 ### Skip OCR
 

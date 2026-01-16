@@ -19,11 +19,24 @@ TIMESTAMP_PREFIX_RE = re.compile(rf"^({TS_CHARS}{{2}}(?:\s+{TS_CHARS}{{2}}){{2,3
 TIMESTAMP_EMBEDDED_RE = re.compile(rf"\s+({TS_CHARS}{{2}}(?:\s+{TS_CHARS}{{2}}){{2,3}})\b")
 REV_EMBEDDED_RE = re.compile(r"(\([RE][FV]\s+\d+\))", re.IGNORECASE)
 
-SPEAKER_LINE_RE = re.compile(r"^[A-Z][A-Z0-9]{1,6}(?:\s*\([A-Z0-9]+\))?$")
+SPEAKER_TOKEN_RE = re.compile(r"^[A-Z0-9]{1,8}(?:/[A-Z0-9]{1,8})?$")
+SPEAKER_LINE_RE = re.compile(
+    r"^[A-Z0-9]{1,8}(?:/[A-Z0-9]{1,8})?"
+    r"(?:\s+[A-Z0-9]{1,8}(?:/[A-Z0-9]{1,8})?){0,2}"
+    r"(?:\s*\([A-Z0-9]+\))?$"
+)
 SPEAKER_PAREN_RE = re.compile(r"^\(([A-Z0-9]+)\)$")
 LOCATION_PAREN_RE = re.compile(r"^\s*\(([A-Z0-9\s]+)\)\s*$")
 HEADER_PAGE_RE = re.compile(r"\bPAGE\s*(\d{1,4})\b", re.IGNORECASE)
 HEADER_TAPE_RE = re.compile(r"\bTAPE\s*([0-9]{1,2}\s*/\s*[0-9]{1,2})\b", re.IGNORECASE)
+HEADER_PAGE_ONLY_RE = re.compile(r"^\s*PAGE\s*\d{1,4}\s*$", re.IGNORECASE)
+HEADER_TAPE_ONLY_RE = re.compile(r"^\s*TAPE\s*\d{1,2}\s*/\s*\d{1,2}\s*$", re.IGNORECASE)
+HEADER_TAPE_SIMPLE_RE = re.compile(r"^\s*TAPE\s*\d{1,4}\s*$", re.IGNORECASE)
+HEADER_TAPE_PAGE_ONLY_RE = re.compile(
+    r"^\s*(?:TAPE\s*\d{1,2}\s*/\s*\d{1,2}\s+PAGE\s*\d{1,4}"
+    r"|PAGE\s*\d{1,4}\s+TAPE\s*\d{1,2}\s*/\s*\d{1,2})\s*$",
+    re.IGNORECASE,
+)
 HEADER_KEYWORDS = ("GOSS", "NET", "TAPE", "PAGE", "APOLLO", "AIR-TO-GROUND")
 END_OF_TAPE_KEYWORD = "END OF TAPE"
 TRANSITION_KEYWORDS = (
@@ -41,6 +54,27 @@ LINE_TAG_RE = re.compile(r"^\[(HEADER|FOOTER|ANNOTATION|COMM|META)\]\s*", re.IGN
 def normalize_whitespace(text: str) -> str:
     """Normalize whitespace in a string."""
     return re.sub(r"\s+", " ", text).strip()
+
+
+def should_split_embedded_timestamp(line: str, match: re.Match) -> bool:
+    """
+    Split only when the embedded timestamp is followed by a plausible speaker token.
+    """
+    remainder = line[match.end():].lstrip()
+    if not remainder:
+        return False
+    token = remainder.split()[0]
+    if SPEAKER_TOKEN_RE.match(token):
+        return True
+    if remainder.startswith("("):
+        close_idx = remainder.find(")")
+        if close_idx != -1:
+            after = remainder[close_idx + 1:].lstrip()
+            if after:
+                token = after.split()[0]
+                if SPEAKER_TOKEN_RE.match(token):
+                    return True
+    return False
 
 
 def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None) -> list[dict]:
@@ -75,6 +109,8 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None)
 
         # 1. Check for embedded timestamp
         ts_match = TIMESTAMP_EMBEDDED_RE.search(line, search_start)
+        if ts_match and not should_split_embedded_timestamp(line, ts_match):
+            ts_match = None
         # 2. Check for embedded REV marker
         rev_match = REV_EMBEDDED_RE.search(line, search_start)
         # 3. Check for trailing mission keyword
@@ -116,32 +152,103 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None)
     pending_location = ""
     pending_text = []
     pending_force_comm = False
+    pending_ts_hint: str | None = None
+    timestamp_only_run = 0
+    timestamp_run_start_idx: int | None = None
+    timestamp_list_mode = False
+    timestamp_list_start_idx: int | None = None
+    timestamp_list_row_idx: int | None = None
 
     def flush_pending():
-        nonlocal pending_ts, pending_speaker, pending_location, pending_text, line_index, pending_force_comm
+        nonlocal pending_ts, pending_speaker, pending_location, pending_text, line_index, pending_force_comm, pending_ts_hint
         if not pending_ts and not pending_speaker and not pending_text: return
         line_index += 1
-        rows.append({
+        row = {
             "page": page_num + 1, "line": line_index,
             "type": "comm" if (pending_ts or pending_force_comm) else "text",
             "timestamp": pending_ts, "speaker": pending_speaker,
             "location": pending_location,
             "text": " ".join(pending_text).strip(),
-        })
+        }
+        if pending_ts_hint:
+            row["timestamp_suffix_hint"] = pending_ts_hint
+        rows.append(row)
         pending_ts = ""; pending_speaker = ""; pending_location = ""; pending_text = []
         pending_force_comm = False
+        pending_ts_hint = None
 
     prev_comm_like = False
     saw_comm_or_ts = False
+    def take_speaker_tokens(tokens: list[str]) -> tuple[str, list[str]]:
+        speaker_tokens = []
+        while tokens and len(speaker_tokens) < 3:
+            token = tokens[0]
+            if len(token) == 1:
+                break
+            if SPEAKER_TOKEN_RE.match(token):
+                speaker_tokens.append(tokens.pop(0))
+                continue
+            break
+        return " ".join(speaker_tokens), tokens
+
     for idx, entry in enumerate(lines):
         line = entry["text"]
         forced_type = entry["forced"]
         upper = line.upper()
         has_lower = any(c.islower() for c in line)
         location_only = LOCATION_PAREN_RE.match(line)
+        is_header_only = (
+            HEADER_PAGE_ONLY_RE.match(line)
+            or HEADER_TAPE_ONLY_RE.match(line)
+            or HEADER_TAPE_PAGE_ONLY_RE.match(line)
+        )
 
-        if forced_type == "annotation" and prev_comm_like and has_lower and "(REV" not in upper and "(RFV" not in upper:
+        has_timestamp = TIMESTAMP_PREFIX_RE.match(line) or TIMESTAMP_STRICT_RE.match(line)
+
+        if timestamp_list_mode and forced_type in ("header", "footer", "annotation", "meta"):
+            if not (
+                (forced_type == "footer" and line.lstrip().startswith("***"))
+                or (forced_type == "meta" and fuzzy_find(line, END_OF_TAPE_KEYWORD))
+                or (
+                    forced_type == "header"
+                    and (
+                        HEADER_PAGE_ONLY_RE.match(line)
+                        or HEADER_TAPE_ONLY_RE.match(line)
+                        or HEADER_TAPE_PAGE_ONLY_RE.match(line)
+                    )
+                )
+            ):
+                forced_type = None
+
+        if forced_type in ("header", "footer", "annotation", "meta") and has_timestamp:
             forced_type = "comm"
+
+        if is_header_only and not has_timestamp:
+            continue
+
+        if forced_type == "meta":
+            if idx <= (first_ts_idx or -1) and (HEADER_PAGE_RE.search(upper) or HEADER_TAPE_RE.search(upper)):
+                forced_type = "header"
+            elif pending_ts or prev_comm_like or has_lower:
+                forced_type = "comm"
+
+        if (
+            forced_type is None
+            and prev_comm_like
+            and not has_lower
+            and len(line.strip()) <= 8
+            and not line.lstrip().startswith("***")
+        ):
+            forced_type = "comm"
+
+        if forced_type == "annotation":
+            if TIMESTAMP_PREFIX_RE.match(line) or TIMESTAMP_STRICT_RE.match(line):
+                forced_type = "comm"
+            elif "(REV" not in upper and "(RFV" not in upper:
+                if has_lower:
+                    forced_type = "comm"
+                elif len(line.strip()) <= 4 and not has_lower:
+                    forced_type = "comm"
 
         if forced_type == "comm" and not saw_comm_or_ts:
             if not TIMESTAMP_PREFIX_RE.match(line) and not TIMESTAMP_STRICT_RE.match(line):
@@ -155,6 +262,11 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None)
                 continue
             if rows and rows[-1].get("type") == "comm" and not rows[-1].get("location"):
                 rows[-1]["location"] = location_value
+                continue
+
+        if SPEAKER_LINE_RE.match(line) and not pending_ts and not timestamp_list_mode:
+            if rows and rows[-1].get("type") == "comm" and not rows[-1].get("speaker"):
+                rows[-1]["speaker"] = line.strip()
                 continue
 
         if forced_type is None and line.lstrip().startswith("***"):
@@ -179,8 +291,15 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None)
             prev_comm_like = False
             continue
 
+
         if forced_type == "header" and ("(REV" in upper or "(RFV" in upper):
             forced_type = "annotation"
+
+        if forced_type == "footer":
+            if fuzzy_find(line, END_OF_TAPE_KEYWORD):
+                forced_type = "meta"
+            elif not line.lstrip().startswith("***"):
+                forced_type = "comm"
 
         if forced_type in ("header", "footer", "annotation", "meta"):
             flush_pending()
@@ -200,7 +319,15 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None)
         # Standalone timestamp
         if TIMESTAMP_STRICT_RE.match(line):
             flush_pending()
+            if timestamp_only_run == 0:
+                timestamp_run_start_idx = len(rows)
             pending_ts = line
+            timestamp_only_run += 1
+            if timestamp_only_run >= 5:
+                timestamp_list_mode = True
+                if timestamp_list_start_idx is None:
+                    timestamp_list_start_idx = timestamp_run_start_idx
+                    timestamp_list_row_idx = timestamp_list_start_idx
             prev_comm_like = True
             saw_comm_or_ts = True
             continue
@@ -209,12 +336,28 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None)
         prefix_match = TIMESTAMP_PREFIX_RE.match(line)
         if prefix_match:
             flush_pending()
+            if timestamp_only_run == 0:
+                timestamp_run_start_idx = len(rows)
             pending_ts = prefix_match.group(1)
+            timestamp_only_run += 1
+            if timestamp_only_run >= 5:
+                timestamp_list_mode = True
+                if timestamp_list_start_idx is None:
+                    timestamp_list_start_idx = timestamp_run_start_idx
+                    timestamp_list_row_idx = timestamp_list_start_idx
             remainder = line[len(pending_ts):].strip()
             if remainder:
                 tokens = remainder.split()
-                if tokens and SPEAKER_LINE_RE.match(tokens[0]):
-                    pending_speaker = tokens.pop(0)
+                if (
+                    len(tokens) >= 2
+                    and tokens[0].isdigit()
+                    and len(tokens[0]) <= 2
+                    and SPEAKER_TOKEN_RE.match(tokens[1])
+                ):
+                    pending_ts_hint = tokens.pop(0)
+                speaker, tokens = take_speaker_tokens(tokens)
+                if speaker:
+                    pending_speaker = speaker
                     # Check if location is attached to speaker
                     loc_match = re.search(r"\(([^)]+)\)", pending_speaker)
                     if loc_match:
@@ -222,9 +365,46 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None)
                         pending_speaker = pending_speaker[:loc_match.start()].strip()
                     elif tokens and re.match(r"^\([^)]+\)$", tokens[0]):
                         pending_location = tokens.pop(0).strip("()")
-                if tokens: pending_text.append(" ".join(tokens))
+                if tokens:
+                    pending_text.append(" ".join(tokens))
             prev_comm_like = True
             saw_comm_or_ts = True
+            continue
+
+        if timestamp_list_mode and pending_ts and not pending_speaker and not pending_text:
+            flush_pending()
+        if not timestamp_list_mode and timestamp_only_run:
+            timestamp_only_run = 0
+            timestamp_run_start_idx = None
+
+        if not pending_ts and not timestamp_list_mode and (SPEAKER_LINE_RE.match(line) or LOCATION_PAREN_RE.match(line)):
+            continue
+        if timestamp_list_mode and not pending_ts and forced_type is None and timestamp_list_row_idx is not None:
+            if timestamp_list_row_idx >= len(rows):
+                timestamp_list_row_idx = len(rows) - 1 if rows else None
+            if timestamp_list_row_idx is not None and timestamp_list_row_idx >= 0:
+                row = rows[timestamp_list_row_idx]
+                if SPEAKER_LINE_RE.match(line):
+                    if row.get("speaker"):
+                        timestamp_list_row_idx += 1
+                        if timestamp_list_row_idx >= len(rows):
+                            timestamp_list_row_idx = len(rows) - 1
+                        row = rows[timestamp_list_row_idx]
+                    row["speaker"] = line.strip()
+                elif LOCATION_PAREN_RE.match(line):
+                    if row.get("location"):
+                        timestamp_list_row_idx += 1
+                        if timestamp_list_row_idx >= len(rows):
+                            timestamp_list_row_idx = len(rows) - 1
+                        row = rows[timestamp_list_row_idx]
+                    row["location"] = line.strip("()").strip()
+                else:
+                    if row.get("text") and (row.get("speaker") or row.get("location")):
+                        timestamp_list_row_idx += 1
+                        if timestamp_list_row_idx >= len(rows):
+                            timestamp_list_row_idx = len(rows) - 1
+                        row = rows[timestamp_list_row_idx]
+                    row["text"] = (row.get("text", "") + " " + line).strip()
             continue
 
         if forced_type is None:
@@ -269,6 +449,64 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None)
         prev_comm_like = prev_comm_like or pending_force_comm
 
     flush_pending()
+
+    if timestamp_list_mode:
+        ts_row_indices = [i for i, row in enumerate(rows) if row.get("timestamp")]
+        start_idx = timestamp_list_start_idx
+        if start_idx is None and ts_row_indices:
+            start_idx = ts_row_indices[0]
+        if start_idx is not None and ts_row_indices:
+            has_speaker = any(rows[i].get("speaker") for i in ts_row_indices)
+            if not has_speaker:
+                ts_line_indices = [
+                    i for i, entry in enumerate(lines)
+                    if TIMESTAMP_STRICT_RE.match(entry["text"]) or TIMESTAMP_PREFIX_RE.match(entry["text"])
+                ]
+                if ts_line_indices:
+                    row_idx = start_idx
+                    for i in range(start_idx, len(rows)):
+                        rows[i]["speaker"] = ""
+                        rows[i]["location"] = ""
+                        rows[i]["text"] = ""
+                    for entry in lines[ts_line_indices[-1] + 1:]:
+                        if row_idx >= len(rows):
+                            break
+                        line = entry["text"]
+                        if (
+                            HEADER_PAGE_ONLY_RE.match(line)
+                            or HEADER_TAPE_ONLY_RE.match(line)
+                            or HEADER_TAPE_PAGE_ONLY_RE.match(line)
+                        ):
+                            continue
+                        row = rows[row_idx]
+                        if SPEAKER_LINE_RE.match(line):
+                            if row.get("speaker"):
+                                row_idx += 1
+                                if row_idx >= len(rows):
+                                    break
+                                row = rows[row_idx]
+                            row["speaker"] = line.strip()
+                        elif LOCATION_PAREN_RE.match(line):
+                            if row.get("location"):
+                                row_idx += 1
+                                if row_idx >= len(rows):
+                                    break
+                                row = rows[row_idx]
+                            row["location"] = line.strip("()").strip()
+                        else:
+                            if row.get("text") and (row.get("speaker") or row.get("location")):
+                                row_idx += 1
+                                if row_idx >= len(rows):
+                                    break
+                                row = rows[row_idx]
+                            row["text"] = (row.get("text", "") + " " + line).strip()
+                    while rows and not (
+                        rows[-1].get("timestamp")
+                        or rows[-1].get("speaker")
+                        or rows[-1].get("location")
+                        or rows[-1].get("text")
+                    ):
+                        rows.pop()
     return rows
 
 
@@ -290,8 +528,6 @@ def extract_header_metadata(lines: list[str], page_num: int, page_offset: int = 
     header_lines = lines[:first_ts_idx] if first_ts_idx is not None else lines[:10]
     for line in header_lines:
         norm = normalize_whitespace(line).upper()
-        if match := HEADER_PAGE_RE.search(norm): result["page"] = int(match.group(1))
-        if match := HEADER_TAPE_RE.search(norm): result["tape"] = match.group(1).replace(" ", "")
         if fuzzy_find(norm, "APOLLO") and fuzzy_find(norm, "TRANSCRIPTION"): result["is_apollo_title"] = True
     return result
 
@@ -330,14 +566,73 @@ def build_page_json(
             if row["timestamp"]: block["timestamp"] = row["timestamp"]
             if row["speaker"]: block["speaker"] = row["speaker"]
             if row["location"]: block["location"] = row["location"]
+            if row.get("timestamp_suffix_hint"):
+                block["timestamp_suffix_hint"] = row["timestamp_suffix_hint"]
             
         if row["text"]:
-            block["text"] = row["text"]
+            text_value = row["text"]
+            if (
+                block_type == "comm"
+                and (
+                    HEADER_PAGE_ONLY_RE.match(text_value)
+                    or HEADER_TAPE_ONLY_RE.match(text_value)
+                    or HEADER_TAPE_SIMPLE_RE.match(text_value)
+                    or HEADER_TAPE_PAGE_ONLY_RE.match(text_value)
+                )
+            ):
+                continue
+            block["text"] = text_value
+            if block_type == "meta" and fuzzy_find(row["text"], END_OF_TAPE_KEYWORD):
+                block["meta_type"] = "end_of_tape"
+            if block_type == "footer" and row["text"].lstrip().startswith("***"):
+                block["text"] = "*** Three asterisks denote clipping of words and phrases."
 
+        if block_type == "continuation" and blocks:
+            if blocks[-1].get("text") and block.get("text"):
+                blocks[-1]["text"] = (blocks[-1]["text"] + " " + block["text"]).strip()
+            elif block.get("text"):
+                blocks[-1]["text"] = block["text"]
+            continue
         if blocks and block_type == "continuation" and blocks[-1]["type"] == "continuation":
             blocks[-1]["text"] = (blocks[-1]["text"] + " " + block["text"]).strip()
         else:
             blocks.append(block)
+
+    merged_blocks = []
+    for block in blocks:
+        if (
+            block.get("type") == "continuation"
+            and block.get("text")
+            and merged_blocks
+            and merged_blocks[-1].get("type") == "comm"
+        ):
+            text = block["text"]
+            if text[:1] in ";,.)" or (text[:1].islower()):
+                merged_blocks[-1]["text"] = (merged_blocks[-1].get("text", "") + " " + text).strip()
+                continue
+        if (
+            block.get("type") == "comm"
+            and not block.get("speaker")
+            and block.get("text")
+            and merged_blocks
+            and merged_blocks[-1].get("type") == "comm"
+        ):
+            text = block["text"]
+            if text[:1] in ";,.)" or (text[:1].islower()):
+                merged_blocks[-1]["text"] = (merged_blocks[-1].get("text", "") + " " + text).strip()
+                continue
+        if (
+            block.get("type") in ("meta", "continuation", "annotation")
+            and block.get("text")
+            and merged_blocks
+            and merged_blocks[-1].get("type") == "comm"
+        ):
+            text = block["text"]
+            if text[:1] in ";,.)" or (text[:1].islower()):
+                merged_blocks[-1]["text"] = (merged_blocks[-1].get("text", "") + " " + text).strip()
+                continue
+        merged_blocks.append(block)
+    blocks = merged_blocks
 
     if blocks and blocks[0]["type"] == "continuation" and previous_block_type in ("comm", "continuation"):
         blocks[0]["continuation_from_prev"] = True

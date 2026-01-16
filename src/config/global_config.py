@@ -15,9 +15,8 @@ class GlobalConfig:
     input_dir: Path = Path("input")
     output_dir: Path = Path("output")
     ocr_url: str = "http://localhost:1234"
-    ocr_model: str = "qwen3-vl-4b"
-    ocr_prompt: str = "structured"
-    ocr_postprocess: str = "none"
+    ocr_model: str = "qwen/qwen3-vl-4b"
+    ocr_prompt: str = "plain"
     dpi: int = 300
     parallel: bool = True
     workers: int = 4
@@ -40,8 +39,7 @@ def load_global_config(config_path: Path) -> GlobalConfig:
     output_dir = Path(data.get("output_dir", "output"))
     ocr_url = str(data.get("ocr_url", "http://localhost:1234"))
     ocr_model = str(data.get("ocr_model", "qwen3-vl-4b"))
-    ocr_prompt = str(data.get("ocr_prompt", "structured")).lower()
-    ocr_postprocess = str(data.get("ocr_postprocess", "none")).lower()
+    ocr_prompt = str(data.get("ocr_prompt", "plain")).lower()
     dpi = int(data.get("dpi", 300))
     parallel = bool(data.get("parallel", True))
     workers = int(data.get("workers", 4))
@@ -61,7 +59,6 @@ def load_global_config(config_path: Path) -> GlobalConfig:
         ocr_url=ocr_url,
         ocr_model=ocr_model,
         ocr_prompt=ocr_prompt,
-        ocr_postprocess=ocr_postprocess,
         dpi=dpi,
         parallel=parallel,
         workers=workers,

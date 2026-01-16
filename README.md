@@ -1,16 +1,17 @@
 # NASA Transcript Processing Pipeline
 
-Pipeline for processing scanned NASA mission transcripts. Performs page-by-page image enhancement, geometric layout detection, and OCR via LM Studio with an optional AI-assisted classification pass.
+Pipeline for processing scanned NASA mission transcripts. Performs page-by-page image enhancement and OCR via LM Studio with an optional AI-assisted classification pass.
 
 ## Features
 
 - **Page-by-page processing**: Processes one page at a time without loading entire PDF.
 - **Image enhancement**: Deskew, contrast improvement, noise removal, text sharpening.
-- **Geometric layout detection**: Detects text blocks using visual analysis (no OCR).
 - **Speaker Location Extraction**: Automatically identifies the origin of the speaker (e.g., `TRANQ`, `COLUMBIA`) and separates it from the dialogue.
 - **Global Timestamp Indexing**: Maintains chronological integrity across the entire document, fixing OCR noise and duplicate timecodes.
 - **LM Studio OCR**: High-performance AI OCR (optimized JPEG payload, <5s/page).
-- **OCR Classification (Optional)**: Second-pass AI tagging using OCR text + image to improve block detection and light OCR cleanup (no hallucination).
+- **OCR Output**: Plain OCR output with optional column-aware mode.
+- **Right-Column OCR Fill**: Optional second OCR pass for the text column to fill missing dialogue.
+- **Header/Tape Reconstruction**: Ignores OCR page/tape lines and recomputes metadata consistently.
 - **Parallel processing**: Multi-threaded image processing with progress tracking.
 
 ## Getting Started
@@ -46,7 +47,7 @@ pip install -r requirements.txt
 The pipeline is operated via the `main.py` CLI. It currently supports two main commands: `process` and `info`.
 
 ### Processing a Transcript
-The `process` command is the main entry point. It extracts pages, enhances images, detects layout, and performs OCR.
+The `process` command is the main entry point. It extracts pages, enhances images, and performs OCR.
 
 ```bash
 # Basic processing (looks for the file in the 'input/' folder)
@@ -57,7 +58,7 @@ python main.py process AS11_TEC.PDF
 python main.py process AS11_TEC.PDF --pages 1-50
 python main.py process AS11_TEC.PDF --pages 10,12,14-16
 
-# Skip OCR (useful for testing image enhancement or layout detection)
+# Skip OCR (useful for testing image enhancement)
 python main.py process AS11_TEC.PDF --no-ocr
 
 # Clean previous output before starting
@@ -66,8 +67,9 @@ python main.py process AS11_TEC.PDF --clean
 # Overriding OCR URL at runtime
 python main.py process AS11_TEC.PDF --ocr-url http://192.168.1.50:1234
 
-# Enable AI classification pass (text + image)
-python main.py process AS11_TEC.PDF --ocr-postprocess classify
+# Use column-aware prompt (no tags)
+python main.py process AS11_TEC.PDF --ocr-prompt column
+
 
 # Print per-page timing breakdowns
 python main.py process AS11_TEC.PDF --pages 1-5 --timing
@@ -91,16 +93,17 @@ output_dir = "output"
 
 # OCR Settings
 ocr_url = "http://localhost:1234"
-ocr_model = "qwen3-vl-4b"
+ocr_model = "qwen/qwen3-vl-4b"
 ocr_timeout = 120
 ocr_max_tokens = 4096
-ocr_prompt = "structured" # "structured" or "plain"
-ocr_postprocess = "none"  # "none" or "classify"
+ocr_prompt = "plain" # "plain" or "column"
+ocr_text_column_pass = true
 
 # Processing Settings
 dpi = 300
 parallel = true
 workers = 4
+timing = true
 
 # Image Enhancement
 clahe_clip_limit = 2.0
@@ -118,7 +121,7 @@ header_ratio = 0.10
 ```toml
 [mission.11]
 file_name = "AS11_TEC.PDF"
-page_offset = 0
+page_offset = -2
 col1_end = 0.15  # Optional override
 ```
 

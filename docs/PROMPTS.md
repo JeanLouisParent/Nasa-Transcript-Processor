@@ -1,6 +1,6 @@
 # Prompt Reference
 
-This document lists the OCR and classification prompts used by the pipeline.
+This document lists the OCR prompts used by the pipeline.
 
 ## File Location
 
@@ -10,23 +10,46 @@ Prompts are stored in `config/prompts.toml`. If the file is missing, the pipelin
 
 ### plain_ocr_prompt
 
-Used when `ocr_prompt = "plain"` or when the classification pass is enabled (the OCR pass is kept plain).
+Used when `ocr_prompt = "plain"`.
 
-### structured_ocr_prompt
+```
+You are a precise OCR engine. Extract all visible text from the page image.
+Preserve reading order top-to-bottom, left-to-right, keeping original line breaks.
+Each transcript line spans multiple columns (timestamp, speaker, text). Read the full line across the page.
+Do not stop at the speaker column; include the rightmost text for each line.
+You may apply minimal corrections to obvious OCR artifacts (e.g., G() -> GO, O/0, I/1) but only when highly confident.
+Ensure sentences read sensibly without inventing or adding any words.
+Do NOT hallucinate or guess missing content.
+Output plain text only with original line breaks.
+Do not add any conversational text or formatting outside the original content.
+```
 
-Used when `ocr_prompt = "structured"` and no post-process classification is enabled.
+### column_ocr_prompt
 
-### classify_prompt
+Used when `ocr_prompt = "column"`.
 
-Used when `ocr_postprocess = "classify"`. This prompt uses OCR text + image and requires line-by-line tagging.
+```
+You are a precise OCR engine for NASA mission transcripts.
+Each line is laid out as columns: timestamp (left), speaker (middle), text (right).
+Read full lines across the page, do not stop at column boundaries.
+Preserve reading order top-to-bottom, left-to-right, keeping original line breaks.
+Output plain text only with original line breaks.
+Do not add any conversational text or formatting outside the original content.
+```
+
+### text_column_prompt
+
+Used during the optional right-column OCR pass.
+
+```
+You are a precise OCR engine.
+The image is a cropped right-side text column of a transcript page.
+Extract ONLY the visible text in that column.
+Return one line per transcript line, preserving order top-to-bottom.
+Do not add timestamps or speakers.
+Output plain text only with original line breaks.
+```
 
 ## Validation Rules
 
-Classification output is rejected unless it:
-
-- Preserves line count and order
-- Preserves line numbering (N| prefix)
-- Includes a valid tag for every line
-- Includes text after the tag
-
-Rejected outputs are written to `*_ocr_classified_rejected.txt` for debugging.
+No post-processing outputs are generated; the pipeline uses plain OCR output by default.

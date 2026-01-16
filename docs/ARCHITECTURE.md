@@ -16,7 +16,6 @@ flowchart TD
     subgraph Processors[Vision Stack]
         EXT[page_extractor.py]
         IMG[image_processor.py]
-        LAY[layout_detector.py]
     end
 
     subgraph Intelligence[OCR & Post-Processing]
@@ -28,9 +27,8 @@ flowchart TD
     ORCH --> Processors
     ORCH --> Intelligence
     PARSER --> CORR
-    Intelligence --> OUT[output_generator.py]
-    CLIENT --> CLASS["ocr_client.classify_image_text"]
-    CLASS --> PARSER
+    Intelligence --> OUT[utils/output_generator.py]
+    CLIENT --> PARSER
 ```
 
 ## Module Responsibilities
@@ -103,26 +101,8 @@ config = load_mission_config(Path("config"), "AS11_TEC.PDF")
 6. Spot cleaning (remove small artifacts)
 7. Unsharp mask sharpening
 
-### layout_detector.py
-**Purpose**: Detect and classify text blocks geometrically
 
-**Key Classes**:
-- `Block`: Bounding box with type and sub-columns
-- `SubColumn`: Timestamp/speaker/text regions within COMM blocks
-- `LayoutResult`: List of blocks with page dimensions
-- `LayoutDetector`: Main detector class
-- `BlockType`: Enum (HEADER, FOOTER, ANNOTATION, COMM)
-
-**Algorithm**:
-1. Binarize with adaptive threshold
-2. Horizontal dilation (connect characters into lines)
-3. Vertical dilation (connect lines into blocks)
-4. Contour detection and filtering
-5. Row clustering and column boundary detection
-6. Block classification using geometric heuristics
-7. COMM grouping with continuation support
-
-### output_generator.py
+### utils/output_generator.py
 **Purpose**: Generate output files for each page
 
 **Key Classes**:
@@ -130,14 +110,11 @@ config = load_mission_config(Path("config"), "AS11_TEC.PDF")
 - `OutputGenerator`: Main generator class
 
 **Outputs per page**:
-- `*_raw.pdf`: Single page extracted from source
-- `*_enhanced.png`: Processed grayscale image
-
-**Block Colors** (BGR):
-- HEADER: Blue (255, 150, 50)
-- FOOTER: Gray (150, 150, 150)
-- ANNOTATION: Magenta (255, 100, 255)
-- COMM: Green outline + light green fill
+- `Page_NNN/<PDF_STEM>_page_NNNN.json`: Structured transcript
+- `Page_NNN/assets/*_raw.pdf`: Single page extracted from source
+- `Page_NNN/assets/*_enhanced.png`: Processed grayscale image
+- `Page_NNN/ocr/*_ocr_*.txt`: OCR artifacts (raw)
+- No block overlay images are generated
 
 ### ocr_client.py
 **Purpose**: Send images to LM Studio for OCR
@@ -149,10 +126,10 @@ config = load_mission_config(Path("config"), "AS11_TEC.PDF")
 - `OCRResponseError`: Invalid responses
 
 **Features**:
-- JPEG payload optimization (quality 85)
+- JPEG payload optimization (quality 95)
 - OpenAI-compatible image_url format
 - Configurable timeout (default: 120s)
-- Optional second-pass classification using OCR text + image
+- No AI post-processing stage; parsing uses heuristics and lexicon correction.
 
 ### ocr_parser.py
 **Purpose**: Parse OCR text into structured blocks and apply intelligent corrections
@@ -211,12 +188,11 @@ ProcessingResult (grayscale, normalized)
     │
     ├──────────────────────────────────────┐
     │                                      │
-    ▼ LayoutDetector.detect()              ▼ LMStudioOCRClient.ocr_image()
-LayoutResult (blocks with classification)  Raw OCR text
-    │                                      │
-    ▼ OutputGenerator.generate()           ▼ classify_image_text() (optional)
+    ▼ OutputGenerator.generate()           ▼ LMStudioOCRClient.ocr_image()
+PageOutput (PNG, PDF files)                Raw OCR text
+                                           ▼ correct_image_text() (optional)
                                            ▼ parse_ocr_text() + build_page_json()
-PageOutput (PNG, PDF files)                JSON file
+                                           JSON file
 ```
 
 ## Threading Model
@@ -278,7 +254,6 @@ ocr_transcript_v2/
 │   ├── mission_config.py   # MissionConfig loader
 │   ├── page_extractor.py   # PDF → numpy
 │   ├── image_processor.py  # Image enhancement
-│   ├── layout_detector.py  # Block detection
 │   ├── output_generator.py # File generation
 │   ├── ocr_client.py       # LM Studio client
 │   ├── ocr_parser.py       # OCR text parsing

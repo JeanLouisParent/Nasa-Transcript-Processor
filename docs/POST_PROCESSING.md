@@ -39,14 +39,15 @@ graph TD
 Once lines are separated, they are classified based on context. This happens via two paths:
 
 - **AI tags (optional)**: When classification is enabled, each line is explicitly tagged as `HEADER`, `COMM`, `ANNOTATION`, `FOOTER`, or `META`.
-- **Heuristic fallback**: If tags are absent or invalid, the parser uses keyword and layout heuristics.
+- **Heuristic fallback**: If tags are absent or invalid, the parser uses keyword-based heuristics.
 
 - **Comm**: A block starting with a timestamp.
 - **Location Extraction**: Parenthesized lines like `(TRANQ)` are treated as locations and attached to the current or immediately preceding COMM block.
 - **Annotation**: Isolated mission keywords or revision markers (e.g., `(REV 1)`).
-- **Header/Footer**: Page/Tape info or specialized NASA markers; `***` lines are treated as footers.
+- **Header/Footer**: Page/Tape info or specialized NASA markers; `***` lines are treated as footers and normalized to the canonical asterisks sentence.
 - **Meta/Transition**: Lines such as `END OF TAPE` or `REST PERIOD - NO COMMUNICATIONS`.
 - **Continuation**: Only used when a page begins with text lacking timestamp/speaker and the previous page ended with COMM.
+- **Timestamp-List Mode**: When the OCR yields a run of timestamp-only lines (>=5) followed by the speaker/text column, the parser reconstructs the row alignment and assigns speakers, locations, and text to each timestamp.
 
 **Smart Merging**: Consecutive `Continuation` blocks are automatically merged into a single paragraph to ensure fluid readability in the final JSON.
 
@@ -70,6 +71,8 @@ $$Score = (Similarity \times 10000) - (LengthDiff \times 500) + Frequency + Cont
 
 The engine analyzes word pairs. If a correction candidate forms a known technical bigram (e.g., `MASTER ALARM` instead of `WASTE ALARM`), it receives a `ContextBonus`.
 
+**Footer Handling**: Footer blocks are excluded from lexical correction so the canonical asterisk line is preserved.
+
 ---
 
 ## 3. Timestamp Recovery & Global Indexing (`timestamp_corrector.py`)
@@ -89,12 +92,32 @@ OCR often misreads digits as punctuation. The engine uses aggressive regex to re
 To ensure perfect continuity across the entire mission, the pipeline maintains a `timestamps_index.json` file.
 
 1.  **Cross-Page Context**: When processing a new page, the engine looks at the last valid timestamp of the previous page.
-2.  **Monotonic Enforcement**: Every new timestamp must be strictly greater than the previous one.
-3.  **Automatic Correction**: If a timestamp is missing or a duplicate is detected, the engine "judges" the flow and increments the time by 1 second to maintain a logical sequence.
+2.  **Tolerance Window**: Small backward slips (OCR hiccups) are preserved instead of rewritten.
+3.  **Automatic Correction**: Missing or large out-of-order jumps are corrected by incrementing the last known timestamp by 1 second to maintain continuity.
+4.  **Tagging**: Corrections are annotated as `timestamp_correction` (e.g., `out_of_order`, `inferred_missing`, `inferred_tens`, `inferred_suffix`, `corrected_jump`).
 
 ---
 
-## 4. Configuration Hierarchy
+## 4. Header Page/Tape Reconstruction
+
+Header `Page`/`Tape` lines from OCR are ignored and recalculated to avoid classification noise:
+
+- `page`: computed from `page_offset` per mission.
+- `tape`: starts at `1/1`, increments `y` each page, increments `x` after encountering `END OF TAPE` (and resets `y`).
+- `END OF TAPE`: marked with `meta_type = "end_of_tape"`.
+
+---
+
+## 5. Right-Column OCR Pass
+
+When `ocr_text_column_pass = true`, the pipeline runs a second OCR pass on the right-side text column.
+Any `comm` blocks missing text are filled from this pass and merged into adjacent lines when they start with punctuation or lowercase.
+Speaker/location-only lines and Page/Tape headers are filtered out of the column pass to avoid false fills.
+
+
+---
+
+## 6. Configuration Hierarchy
 
 The pipeline merges configurations to allow both global stability and mission-specific precision.
 

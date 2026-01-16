@@ -16,7 +16,7 @@ page_offset = 0
 
 ### Step 2: Adjust Parameters (if needed)
 
-Create a custom `PipelineConfig` for different layouts:
+Create a custom `PipelineConfig` for different scan conditions:
 
 ```python
 from pathlib import Path
@@ -25,13 +25,8 @@ from src.pipeline import TranscriptPipeline
 
 config = PipelineConfig(
     dpi=300,
-    # Column positions (adjust for different layouts)
-    col1_end=0.12,      # Timestamp/speaker boundary
-    col2_end=0.28,      # Speaker/text boundary
-    header_ratio=0.08,  # Header zone height
-    # Detection sensitivity
-    line_kernel_width=45,
-    min_block_area=800,
+    clahe_clip_limit=2.0,
+    bilateral_d=9,
 )
 
 pipeline = TranscriptPipeline(Path("APOLLO12.PDF"), Path("output"), config)
@@ -42,51 +37,9 @@ pipeline.process_range(0, pipeline.page_count)
 
 | Parameter | When to adjust |
 |-----------|----------------|
-| `col1_end`, `col2_end` | Different column widths |
-| `header_ratio` | Larger/smaller headers |
-| `line_kernel_width` | Wider/narrower character spacing |
 | `clahe_clip_limit` | Low contrast scans |
 | `bilateral_d` | Noisy scans |
 
----
-
-## Adding a New Block Type
-
-### Step 1: Add to Enum
-
-Edit `src/layout_detector.py`:
-
-```python
-class BlockType(Enum):
-    HEADER = "header"
-    FOOTER = "footer"
-    ANNOTATION = "annotation"
-    COMM = "comm"
-    FOOTNOTE = "footnote"  # New type
-```
-
-### Step 2: Add Detection Logic
-
-In `LayoutDetector.detect()`, add classification rules:
-
-```python
-# Example: detect footnotes at bottom with specific pattern
-if row_y > page_h * 0.9 and row_width < page_w * 0.5:
-    block_type = BlockType.FOOTNOTE
-```
-
-### Step 3: Add Visualization
-
-In `src/output_generator.py`, add color:
-
-```python
-COLORS = {
-    # ... existing colors ...
-    'footnote': (100, 100, 200),  # Light red
-}
-```
-
-Blocks overlays are no longer generated.
 
 ---
 
@@ -184,7 +137,7 @@ from src.ocr.ocr_client import LMStudioOCRClient
 client = LMStudioOCRClient(
     base_url="http://localhost:1234",
     model="qwen3-vl-4b",
-    prompt="Extract text preserving exact layout and spacing.",
+    prompt="Extract text with original line breaks.",
 )
 ```
 
@@ -193,7 +146,6 @@ client = LMStudioOCRClient(
 Enable the second-pass classifier (OCR text + image) via config:
 
 ```toml
-ocr_postprocess = "classify"
 ```
 
 The classifier output is strictly validated for line count/order. If invalid, the parser falls back to the raw OCR text.
@@ -222,22 +174,6 @@ def parse_custom_format(text: str, page_num: int) -> list[dict]:
 ---
 
 ## Testing
-
-### Unit Test
-
-```python
-# tests/test_layout.py
-import cv2
-from src.layout_detector import LayoutDetector, BlockType
-
-def test_header_detection():
-    image = cv2.imread("tests/fixtures/page.png", cv2.IMREAD_GRAYSCALE)
-    detector = LayoutDetector()
-    layout = detector.detect(image)
-
-    headers = [b for b in layout.blocks if b.block_type == BlockType.HEADER]
-    assert len(headers) >= 1
-```
 
 ### Integration Test
 

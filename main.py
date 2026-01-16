@@ -22,7 +22,7 @@ from loguru import logger
 sys.path.insert(0, str(Path(__file__).parent))
 
 from src.core.config import PipelineConfig
-from src.config.global_config import GlobalConfig, load_global_config
+from src.config.global_config import GlobalConfig, load_global_config, load_prompt_config
 from src.processors.image_processor import ImageProcessor
 from src.processors.layout_detector import LayoutDetector
 from src.config.mission_config import load_mission_config
@@ -94,9 +94,14 @@ def run_ocr_pipeline(
     valid_locations: list[str] = None
 ) -> tuple[int, dict[int, dict[str, float]]]:
     """Run OCR on already processed pages."""
-    prompt = STRUCTURED_OCR_PROMPT
+    prompts_cfg = load_prompt_config(Path("config/prompts.toml"))
+    plain_prompt = prompts_cfg.get("plain_ocr_prompt", PLAIN_OCR_PROMPT)
+    structured_prompt = prompts_cfg.get("structured_ocr_prompt", STRUCTURED_OCR_PROMPT)
+    classify_prompt = prompts_cfg.get("classify_prompt", None)
+
+    prompt = structured_prompt
     if config.ocr_prompt == "plain" or config.ocr_postprocess == "classify":
-        prompt = PLAIN_OCR_PROMPT
+        prompt = plain_prompt
 
     client = LMStudioOCRClient(
         base_url=config.ocr_url,
@@ -104,6 +109,7 @@ def run_ocr_pipeline(
         timeout_s=120,
         max_tokens=4096,
         prompt=prompt,
+        classify_prompt=classify_prompt or None,
     )
 
     failures = 0

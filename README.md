@@ -122,6 +122,10 @@ page_offset = 0
 col1_end = 0.15  # Optional override
 ```
 
+## Prompts
+
+OCR and classification prompts live in `config/prompts.toml`. See `docs/PROMPTS.md` for the full reference.
+
 ## Requirements
 
 - Python 3.10+

@@ -198,6 +198,10 @@ ocr_postprocess = "classify"
 
 The classifier output is strictly validated for line count/order. If invalid, the parser falls back to the raw OCR text.
 
+### Prompt Customization
+
+Edit `config/prompts.toml` to override the OCR and classification prompts without changing code.
+
 ### Custom Parser
 
 Create your own parser in `src/ocr_parser.py`:

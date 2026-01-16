@@ -228,6 +228,8 @@ Generates output files for each processed page.
 
 Sends enhanced images to LM Studio for text extraction. Optionally runs a second AI pass to tag each line using the OCR text plus the page image.
 
+Prompt text is loaded from `config/prompts.toml` when present. See `docs/PROMPTS.md`.
+
 ### OCR Client
 
 Uses OpenAI-compatible API with optimized workflow for speed:

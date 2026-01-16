@@ -88,6 +88,7 @@ class LMStudioOCRClient:
     timeout_s: int = 120
     max_tokens: int = 4096
     prompt: str = STRUCTURED_OCR_PROMPT
+    classify_prompt: str = CLASSIFY_OCR_PROMPT
     verify_ssl: bool = False
 
     def __post_init__(self):
@@ -201,7 +202,7 @@ class LMStudioOCRClient:
         """
         _, buffer = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
         base64_image = base64.b64encode(buffer).decode("utf-8")
-        instruction = CLASSIFY_OCR_PROMPT
+        instruction = self.classify_prompt
         if extra_instruction:
             instruction = f"{CLASSIFY_OCR_PROMPT}{extra_instruction}\n"
         payload = {

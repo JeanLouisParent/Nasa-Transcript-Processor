@@ -67,3 +67,10 @@ def load_global_config(config_path: Path) -> GlobalConfig:
         workers=workers,
         pipeline_defaults=pipeline_defaults
     )
+
+
+def load_prompt_config(config_path: Path) -> dict[str, str]:
+    if not config_path.exists():
+        return {}
+    data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    return {k: str(v) for k, v in data.items()}

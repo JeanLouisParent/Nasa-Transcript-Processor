@@ -29,16 +29,26 @@ from src.correctors.timestamp_index import GlobalTimestampIndex
 from src.ocr.ocr_client import (
     PLAIN_OCR_PROMPT,
     STRUCTURED_OCR_PROMPT,
+    COLUMN_OCR_PROMPT,
+    TEXT_COLUMN_OCR_PROMPT,
     CLASSIFY_OCR_PROMPT,
     CORRECT_OCR_PROMPT,
     SIGNAL_OCR_PROMPT,
     LMStudioOCRClient,
 )
-from src.ocr.ocr_parser import build_page_json, parse_ocr_text
+from src.ocr.ocr_parser import (
+    build_page_json,
+    parse_ocr_text,
+    HEADER_PAGE_ONLY_RE,
+    HEADER_TAPE_ONLY_RE,
+    HEADER_TAPE_PAGE_ONLY_RE,
+    SPEAKER_LINE_RE,
+    LOCATION_PAREN_RE,
+)
 from src.utils.output_generator import OutputGenerator
 from src.processors.page_extractor import PageExtractor, get_pdf_info
 from src.core.pipeline import PageResult, TranscriptPipeline
-from src.utils.console import PipelineConsole
+from src.utils.console import PipelineConsole, console as rich_console
 
 # Initialize console manager
 console = PipelineConsole()
@@ -97,18 +107,25 @@ def run_ocr_pipeline(
     valid_speakers: list[str] = None,
     text_replacements: dict[str, str] = None,
     mission_keywords: list[str] = None,
-    valid_locations: list[str] = None
+    valid_locations: list[str] = None,
+    mission_overrides: dict[str, object] | None = None
 ) -> tuple[int, dict[int, dict[str, float]]]:
     """Run OCR on already processed pages."""
     prompts_cfg = load_prompt_config(Path("config/prompts.toml"))
     plain_prompt = prompts_cfg.get("plain_ocr_prompt", PLAIN_OCR_PROMPT)
     structured_prompt = prompts_cfg.get("structured_ocr_prompt", STRUCTURED_OCR_PROMPT)
+    column_prompt = prompts_cfg.get("column_ocr_prompt", COLUMN_OCR_PROMPT)
+    text_column_prompt = prompts_cfg.get("text_column_prompt", TEXT_COLUMN_OCR_PROMPT)
     classify_prompt = prompts_cfg.get("classify_prompt", None)
     correct_prompt = prompts_cfg.get("correct_prompt", None)
     signal_prompt = prompts_cfg.get("signal_prompt", None)
 
     prompt = structured_prompt
-    if config.ocr_prompt == "plain" or config.ocr_postprocess in ("classify", "correct", "signal", "hybrid"):
+    if config.ocr_prompt == "plain":
+        prompt = plain_prompt
+    elif config.ocr_prompt == "column":
+        prompt = column_prompt
+    elif config.ocr_postprocess in ("classify", "correct", "signal", "hybrid"):
         prompt = plain_prompt
 
     client = LMStudioOCRClient(
@@ -131,7 +148,23 @@ def run_ocr_pipeline(
     index_path = config.output_dir / pdf_path.stem / "timestamps_index.json"
     ts_index = GlobalTimestampIndex.load(index_path)
 
+    if mission_overrides is None:
+        mission_overrides = {}
+    ocr_text_column_pass = bool(
+        mission_overrides.get(
+            "ocr_text_column_pass",
+            config.pipeline_defaults.get("ocr_text_column_pass", False),
+        )
+    )
+    col2_end = float(
+        mission_overrides.get(
+            "col2_end",
+            config.pipeline_defaults.get("col2_end", 0.30),
+        )
+    )
     previous_block_type = None
+    tape_x = 1
+    tape_y = 1
     for pr in page_results:
         if not pr.success or not pr.output:
             continue
@@ -149,15 +182,15 @@ def run_ocr_pipeline(
                 raise FileNotFoundError(f"Enhanced image not found: {enhanced_path}")
 
             text = client.ocr_image(enhanced)
+            ocr_lines_raw = [line for line in text.splitlines() if line.strip()]
             parsed_text = text
             classify_time = 0.0
             postprocess_mode = config.ocr_postprocess
             if postprocess_mode == "classify":
                 postprocess_mode = "hybrid"
 
-            if postprocess_mode in ("correct", "hybrid", "signal"):
+            if postprocess_mode in ("correct", "hybrid", "signal") and ocr_lines_raw:
                 classify_start = time.perf_counter()
-                ocr_lines_raw = [line for line in text.splitlines() if line.strip()]
                 numbered_text = "\n".join(f"{i+1}|{line}" for i, line in enumerate(ocr_lines_raw))
                 corrected_text = text
 
@@ -264,6 +297,8 @@ def run_ocr_pipeline(
                         )
 
                 parsed_text = tagged_text
+            elif postprocess_mode in ("correct", "hybrid", "signal") and not ocr_lines_raw:
+                parsed_text = ""
 
             lines = [line.strip() for line in parsed_text.splitlines() if line.strip()]
             rows = parse_ocr_text(parsed_text, page_num, mission_keywords)
@@ -278,6 +313,66 @@ def run_ocr_pipeline(
                 initial_ts=initial_ts,
                 previous_block_type=previous_block_type
             )
+
+            if ocr_text_column_pass:
+                missing_text_blocks = [
+                    b for b in payload.get("blocks", [])
+                    if b.get("type") == "comm" and not b.get("text")
+                ]
+                if missing_text_blocks:
+                    h, w = enhanced.shape[:2]
+                    start_x = min(w - 1, max(0, int(w * col2_end) + 5))
+                    column_crop = enhanced[:, start_x:w]
+                    column_text = client.ocr_image_with_prompt(column_crop, text_column_prompt)
+                    raw_lines = [line.strip() for line in column_text.splitlines() if line.strip()]
+                    column_lines = [
+                        line for line in raw_lines
+                        if not SPEAKER_LINE_RE.match(line)
+                        and not LOCATION_PAREN_RE.match(line)
+                        and not HEADER_PAGE_ONLY_RE.match(line)
+                        and not HEADER_TAPE_ONLY_RE.match(line)
+                        and not HEADER_TAPE_PAGE_ONLY_RE.match(line)
+                    ]
+                    if column_lines:
+                        for block, line in zip(missing_text_blocks, column_lines):
+                            block["text"] = line
+                        (page_dir / f"{page_id}_ocr_textcol.txt").write_text(
+                            column_text + "\n", encoding="utf-8"
+                        )
+                # Merge adjacent column_ocr continuations
+                merged_blocks = []
+                for block in payload.get("blocks", []):
+                    if (
+                        block.get("type") == "comm"
+                        and block.get("text")
+                        and merged_blocks
+                        and merged_blocks[-1].get("type") == "comm"
+                        and merged_blocks[-1].get("text")
+                    ):
+                        text = block["text"]
+                        if text[:1] in ";,.)" or text[:1].islower():
+                            merged_blocks[-1]["text"] = (
+                                merged_blocks[-1].get("text", "") + " " + text
+                            ).strip()
+                            continue
+                    merged_blocks.append(block)
+                payload["blocks"] = merged_blocks
+                if missing_text_blocks and column_lines:
+                    payload["blocks"] = [
+                        b for b in payload.get("blocks", [])
+                        if not (
+                            b.get("type") == "comm"
+                            and b.get("timestamp_correction") == "inferred_missing"
+                            and not b.get("speaker")
+                            and not b.get("text")
+                        )
+                    ]
+
+            # Recompute page/tape metadata (ignore OCR header Page/Tape lines)
+            header = payload.get("header", {})
+            header["page"] = page_num + 1 + page_offset
+            header["tape"] = f"{tape_x}/{tape_y}"
+            payload["header"] = header
 
             # Update index
             page_timestamps = [
@@ -312,6 +407,18 @@ def run_ocr_pipeline(
             else:
                 previous_block_type = None
 
+            end_of_tape = any(
+                b.get("type") == "meta"
+                and isinstance(b.get("text"), str)
+                and "END OF TAPE" in b.get("text").upper()
+                for b in payload.get("blocks", [])
+            )
+            if end_of_tape:
+                tape_x += 1
+                tape_y = 1
+            else:
+                tape_y += 1
+
             # Small pause to let the OCR server breathe/cleanup VRAM
             time.sleep(0.5)
 
@@ -339,7 +446,7 @@ def cli():
 @click.option("--ocr-url", help="LM Studio URL (overrides config)")
 @click.option(
     "--ocr-prompt",
-    type=click.Choice(["structured", "plain"], case_sensitive=False),
+    type=click.Choice(["structured", "plain", "column"], case_sensitive=False),
     help="OCR prompt mode (overrides config)"
 )
 @click.option(
@@ -447,7 +554,8 @@ def process(
             valid_speakers,
             text_replacements,
             mission_keywords,
-            valid_locations
+            valid_locations,
+            mission_cfg.layout_overrides
         )
         if timing:
             for pr in result.page_results:
@@ -495,7 +603,7 @@ def info(pdf_name: str):
     for key in ("title", "author", "creator", "producer"):
         table.add_row(key.title(), str(info[key] or '(none)'))
     
-    console.console.print(table)
+    rich_console.print(table)
 
 
 if __name__ == "__main__":

@@ -9,7 +9,9 @@ Pipeline for processing scanned NASA mission transcripts. Performs page-by-page 
 - **Speaker Location Extraction**: Automatically identifies the origin of the speaker (e.g., `TRANQ`, `COLUMBIA`) and separates it from the dialogue.
 - **Global Timestamp Indexing**: Maintains chronological integrity across the entire document, fixing OCR noise and duplicate timecodes.
 - **LM Studio OCR**: High-performance AI OCR (optimized JPEG payload, <5s/page).
-- **OCR Classification (Optional)**: Second-pass AI tagging using OCR text + image to improve block detection and light OCR cleanup (no hallucination).
+- **Post-OCR Intelligence**: Optional correction + signal passes (text + image) to improve block detection without hallucination.
+- **Right-Column OCR Fill**: Optional second OCR pass for the text column to fill missing dialogue.
+- **Header/Tape Reconstruction**: Ignores OCR page/tape lines and recomputes metadata consistently.
 - **Parallel processing**: Multi-threaded image processing with progress tracking.
 
 ## Getting Started
@@ -65,8 +67,16 @@ python main.py process AS11_TEC.PDF --clean
 # Overriding OCR URL at runtime
 python main.py process AS11_TEC.PDF --ocr-url http://192.168.1.50:1234
 
-# Enable AI classification pass (text + image)
-python main.py process AS11_TEC.PDF --ocr-postprocess classify
+# Use column-aware prompt (no tags)
+python main.py process AS11_TEC.PDF --ocr-prompt column
+
+# Use structured tags directly from OCR (no postprocess)
+python main.py process AS11_TEC.PDF --ocr-postprocess none --ocr-prompt structured
+
+# Enable AI post-processing (text + image)
+python main.py process AS11_TEC.PDF --ocr-postprocess correct
+python main.py process AS11_TEC.PDF --ocr-postprocess signal
+python main.py process AS11_TEC.PDF --ocr-postprocess hybrid
 
 # Print per-page timing breakdowns
 python main.py process AS11_TEC.PDF --pages 1-5 --timing
@@ -93,8 +103,9 @@ ocr_url = "http://localhost:1234"
 ocr_model = "qwen/qwen3-vl-4b"
 ocr_timeout = 120
 ocr_max_tokens = 4096
-ocr_prompt = "structured" # "structured" or "plain"
+ocr_prompt = "structured" # "structured", "plain", or "column"
 ocr_postprocess = "hybrid"  # "none", "correct", "signal", or "hybrid"
+ocr_text_column_pass = true
 
 # Processing Settings
 dpi = 300
@@ -117,7 +128,7 @@ header_ratio = 0.10
 ```toml
 [mission.11]
 file_name = "AS11_TEC.PDF"
-page_offset = 0
+page_offset = -2
 col1_end = 0.15  # Optional override
 ```
 

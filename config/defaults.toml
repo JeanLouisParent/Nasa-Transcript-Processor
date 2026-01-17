@@ -7,10 +7,11 @@ output_dir = "output"
 # OCR Settings
 ocr_url = "http://192.168.1.119:1234"
 ocr_model = "qwen/qwen3-vl-4b"  # Vision model to use
-ocr_prompt = "structured" # "structured" or "plain"
+ocr_prompt = "structured" # "structured", "plain", or "column"
 ocr_postprocess = "hybrid"  # "none", "correct", "signal", or "hybrid"
 ocr_timeout = 120
 ocr_max_tokens = 4096
+ocr_text_column_pass = true
 
 # Processing Settings
 dpi = 300
@@ -38,4 +39,8 @@ mission_keywords = [
 
 [parser]
 # Global OCR fixes applicable to all missions
-text_replacements = { "\\bRFV\\b" = "REV", "\\bRE V\\b" = "REV", "\\bre\\s+id\\b" = "read" }
+
+[parser.text_replacements]
+"\\bRFV\\b" = "REV"
+"\\bRE V\\b" = "REV"
+"\\bre\\s+id\\b" = "read"

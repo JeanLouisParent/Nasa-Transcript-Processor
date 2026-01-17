@@ -81,6 +81,26 @@ class TextCorrector:
         # Fix hyphenation: "commu- nication" -> "communication"
         text = re.sub(r"(\w+)-\s+([a-z]+)", r"\1\2", text)
 
+        # Merge single-letter token with following hyphenated word (e.g., "c t-off" -> "ct-off")
+        text = re.sub(r"\b([A-Za-z])\s+([A-Za-z]+-[A-Za-z]+)\b", r"\1\2", text)
+
+        # Normalize truncated decimals when followed by whitespace/punctuation (e.g., "4." -> "4.0")
+        text = re.sub(r"\b(\d+)\.(?=\s|$|[)\],;:])", r"\1.0", text)
+
+        # Remove stray colons inside words (e.g., "Apollo:o" -> "Apolloo")
+        text = re.sub(r"(?<=[A-Za-z]):(?=[A-Za-z])", "", text)
+
+        # Fix single-letter tokens with parens before common directives (e.g., "G() at" -> "GO at")
+        text = re.sub(r"\b([A-Z])\(\)\s+(at|for|from)\b", r"\1O \2", text)
+
+        # Strip parentheses inside short all-caps tokens (e.g., "G()" -> "G", "G()O" -> "GO")
+        def strip_paren_token(m: re.Match) -> str:
+            token = m.group(0)
+            letters = re.sub(r"[^A-Z]", "", token)
+            return letters or token
+
+        text = re.sub(r"\b[A-Z][A-Z()]{0,5}\b", strip_paren_token, text)
+
         # Apply mission-specific replacements
         for pattern, replacement in self.replacements.items():
             text = re.sub(pattern, replacement, text)
@@ -90,7 +110,13 @@ class TextCorrector:
         
         return text
 
-    def suggest_correction(self, word: str, prev_word: str = None) -> str | None:
+    def suggest_correction(
+        self,
+        word: str,
+        prev_word: str = None,
+        allow_short: bool = False,
+        allow_known_short: bool = False
+    ) -> str | None:
         """
         Suggest a correction for a word using frequency and context (bigrams).
         """
@@ -98,10 +124,11 @@ class TextCorrector:
         
         # 1. Known word?
         if word_lower in self.vocab or word_lower.isdigit():
-            return None
+            if not (allow_known_short and len(word) < 3):
+                return None
             
         # 2. Short word noise?
-        if len(word) < 3:
+        if len(word) < 3 and not allow_short:
             return None
 
         # 3. Get candidates from lexicon
@@ -115,6 +142,8 @@ class TextCorrector:
         best_score = -1
 
         for cand in candidates:
+            if allow_known_short and len(word_lower) < 3 and cand == word_lower:
+                continue
             # Avoid shortening very short words
             if len(word_lower) <= 3 and len(cand) < len(word_lower):
                 continue
@@ -179,11 +208,37 @@ class TextCorrector:
                 def repl(m):
                     nonlocal prev_word
                     w = m.group(0)
-                    corr = self.suggest_correction(w, prev_word)
+                    allow_short = len(w) < 3 and "-" in token
+                    corr = self.suggest_correction(w, prev_word, allow_short=allow_short)
                     final = corr if corr else w
                     prev_word = final # Update context
                     return final
-                
+
+                def fix_hyphenated(m):
+                    nonlocal prev_word
+                    word = m.group(0)
+                    parts = word.split("-")
+                    if any(re.search(r"\d", part) for part in parts):
+                        return word
+                    corrected_parts = []
+                    for part in parts:
+                        corr = self.suggest_correction(
+                            part,
+                            prev_word,
+                            allow_short=(len(part) < 3),
+                            allow_known_short=True
+                        )
+                        final = corr if corr else part
+                        if part.istitle():
+                            final = final.title()
+                        elif part.isupper():
+                            final = final.upper()
+                        corrected_parts.append(final)
+                        prev_word = final
+                    return "-".join(corrected_parts)
+
+                token = re.sub(r"\b[\w']+(?:-[\w']+)+\b", fix_hyphenated, token)
+
                 new_token = re.sub(r"\w+", repl, token)
                 corrected_tokens.append(new_token)
             else:
@@ -201,6 +256,8 @@ class TextCorrector:
 
         for block in blocks:
             # Apply to 'text' fields (comm, continuation, annotation)
+            if block.get("type") == "footer":
+                continue
             if "text" in block and block["text"]:
                 block["text"] = self.correct_text(block["text"])
         

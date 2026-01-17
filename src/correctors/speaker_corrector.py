@@ -28,7 +28,8 @@ class SpeakerCorrector:
 
         # normalization
         normalized = raw_speaker.upper().strip()
-        
+        normalized = "".join(ch for ch in normalized if ch.isalnum() or ch == "/")
+
         # 1. Exact match
         if normalized in self.valid_speakers_set:
             return normalized
@@ -39,6 +40,11 @@ class SpeakerCorrector:
             normalized = normalized[1:-1]
             if normalized in self.valid_speakers_set:
                 return normalized
+        # Map single-letter tokens to doubled codes if present (e.g. "C" -> "CC")
+        if len(normalized) == 1:
+            doubled = normalized * 2
+            if doubled in self.valid_speakers_set:
+                return doubled
 
         # 3. Fuzzy match
         # cutoff=0.6 allows for small typos (1 char diff in short strings)
@@ -63,21 +69,25 @@ class SpeakerCorrector:
             # 1. Try to recover speaker from text if empty
             if not block.get("speaker") and block.get("text"):
                 # Split first word
-                parts = block["text"].split(maxsplit=1)
-                if parts:
-                    first_word = parts[0]
+                tokens = block["text"].split()
+                if tokens:
+                    # Try two-token speaker (e.g. "SWIM 1", "PRESIDENT NIXON")
+                    if len(tokens) >= 2:
+                        candidate = f"{tokens[0]} {tokens[1]}".upper()
+                        if candidate in self.valid_speakers_set:
+                            block["speaker"] = candidate
+                            block["text"] = " ".join(tokens[2:]).strip()
+                            continue
+
+                    first_word = tokens[0]
                     # Check if first word looks like a speaker (fuzzy match)
                     # We use a stricter cutoff here to avoid extracting random words
                     corrected = self.correct_speaker(first_word)
-                    
+
                     # If correct_speaker found a match in valid_speakers (and it's not just returning original)
                     if corrected in self.valid_speakers_set:
                         block["speaker"] = corrected
-                        # Remove the speaker from text
-                        if len(parts) > 1:
-                            block["text"] = parts[1]
-                        else:
-                            block["text"] = "" # Only speaker in text?
+                        block["text"] = " ".join(tokens[1:]).strip()
 
             # 2. Correct existing speaker field
             if block.get("speaker"):

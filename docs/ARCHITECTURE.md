@@ -27,9 +27,8 @@ flowchart TD
     ORCH --> Processors
     ORCH --> Intelligence
     PARSER --> CORR
-    Intelligence --> OUT[output_generator.py]
-    CLIENT --> CLASS["ocr_client.classify_image_text"]
-    CLASS --> PARSER
+    Intelligence --> OUT[utils/output_generator.py]
+    CLIENT --> PARSER
 ```
 
 ## Module Responsibilities
@@ -103,7 +102,7 @@ config = load_mission_config(Path("config"), "AS11_TEC.PDF")
 7. Unsharp mask sharpening
 
 
-### output_generator.py
+### utils/output_generator.py
 **Purpose**: Generate output files for each page
 
 **Key Classes**:
@@ -113,12 +112,7 @@ config = load_mission_config(Path("config"), "AS11_TEC.PDF")
 **Outputs per page**:
 - `*_raw.pdf`: Single page extracted from source
 - `*_enhanced.png`: Processed grayscale image
-
-**Block Colors** (BGR):
-- HEADER: Blue (255, 150, 50)
-- FOOTER: Gray (150, 150, 150)
-- ANNOTATION: Magenta (255, 100, 255)
-- COMM: Green outline + light green fill
+ - No block overlay images are generated
 
 ### ocr_client.py
 **Purpose**: Send images to LM Studio for OCR
@@ -130,10 +124,10 @@ config = load_mission_config(Path("config"), "AS11_TEC.PDF")
 - `OCRResponseError`: Invalid responses
 
 **Features**:
-- JPEG payload optimization (quality 85)
+- JPEG payload optimization (quality 95)
 - OpenAI-compatible image_url format
 - Configurable timeout (default: 120s)
-- Optional second-pass classification using OCR text + image
+- Optional post-processing (correct/signal) using OCR text + image
 
 ### ocr_parser.py
 **Purpose**: Parse OCR text into structured blocks and apply intelligent corrections
@@ -194,7 +188,7 @@ ProcessingResult (grayscale, normalized)
     │                                      │
     ▼ OutputGenerator.generate()           ▼ LMStudioOCRClient.ocr_image()
 PageOutput (PNG, PDF files)                Raw OCR text
-                                           ▼ classify_image_text() (optional)
+                                           ▼ correct_image_text() / signal_image_text() (optional)
                                            ▼ parse_ocr_text() + build_page_json()
                                            JSON file
 ```

@@ -14,7 +14,9 @@ Used when `ocr_prompt = "plain"` or when the classification pass is enabled (the
 
 ```
 You are a precise OCR engine. Extract all visible text from the page image.
-Preserve reading order top-to-bottom, left-to-right.
+Preserve reading order top-to-bottom, left-to-right, keeping original line breaks.
+Each transcript line spans multiple columns (timestamp, speaker, text). Read the full line across the page.
+Do not stop at the speaker column; include the rightmost text for each line.
 Output plain text only with original line breaks.
 Do not add any conversational text or formatting outside the original content.
 ```
@@ -22,10 +24,13 @@ Do not add any conversational text or formatting outside the original content.
 ### structured_ocr_prompt
 
 Used when `ocr_prompt = "structured"` and no post-process classification is enabled.
+If `ocr_postprocess` is enabled, the pipeline forces the OCR pass to use the plain prompt.
 
 ```
 You are a precise OCR engine for NASA mission transcripts.
 Extract all visible text from the page image and preserve reading order top-to-bottom, left-to-right, keeping original line breaks.
+Each transcript line spans multiple columns (timestamp, speaker, text). Read the full line across the page.
+Do not stop at the speaker column; include the rightmost text for each line.
 Prefix EACH output line with exactly one tag from this set: [HEADER], [COMM], [ANNOTATION], [FOOTER], [META].
 Use [HEADER] for page header lines (mission name, tape/page, network info).
 Use [COMM] for communication/body lines, including continuation lines without timestamps.
@@ -34,6 +39,32 @@ Use [FOOTER] for footer/bottom markers or asterisk blocks.
 Use [META] for END OF TAPE or similar meta lines.
 Do not add any extra commentary or formatting beyond the tag prefix.
 If uncertain, choose [COMM].
+```
+
+### column_ocr_prompt
+
+Used when `ocr_prompt = "column"`.
+
+```
+You are a precise OCR engine for NASA mission transcripts.
+Each line is laid out as columns: timestamp (left), speaker (middle), text (right).
+Read full lines across the page, do not stop at column boundaries.
+Preserve reading order top-to-bottom, left-to-right, keeping original line breaks.
+Output plain text only with original line breaks.
+Do not add any conversational text or formatting outside the original content.
+```
+
+### text_column_prompt
+
+Used during the optional right-column OCR pass.
+
+```
+You are a precise OCR engine.
+The image is a cropped right-side text column of a transcript page.
+Extract ONLY the visible text in that column.
+Return one line per transcript line, preserving order top-to-bottom.
+Do not add timestamps or speakers.
+Output plain text only with original line breaks.
 ```
 
 ### classify_prompt
@@ -110,4 +141,4 @@ Classification output is rejected unless it:
 - Includes a valid tag for every line
 - Includes text after the tag
 
-Rejected outputs are written to `*_ocr_classified_rejected.txt` for debugging.
+Rejected outputs are written to `*_ocr_signal_rejected.txt` or `*_ocr_corrected_rejected.txt` for debugging.

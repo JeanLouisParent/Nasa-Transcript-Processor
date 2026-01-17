@@ -17,7 +17,9 @@ from loguru import logger
 
 PLAIN_OCR_PROMPT = (
     "You are a precise OCR engine. Extract all visible text from the page image. "
-    "Preserve reading order top-to-bottom, left-to-right. "
+    "Preserve reading order top-to-bottom, left-to-right, keeping original line breaks. "
+    "Each transcript line spans multiple columns (timestamp, speaker, text). Read the full line across the page. "
+    "Do not stop at the speaker column; include the rightmost text for each line. "
     "Output plain text only with original line breaks. "
     "Do not add any conversational text or formatting outside the original content."
 )
@@ -26,6 +28,8 @@ STRUCTURED_OCR_PROMPT = (
     "You are a precise OCR engine for NASA mission transcripts. "
     "Extract all visible text from the page image and preserve reading order "
     "top-to-bottom, left-to-right, keeping original line breaks. "
+    "Each transcript line spans multiple columns (timestamp, speaker, text). Read the full line across the page. "
+    "Do not stop at the speaker column; include the rightmost text for each line. "
     "Prefix EACH output line with exactly one tag from this set: "
     "[HEADER], [COMM], [ANNOTATION], [FOOTER], [META]. "
     "Use [HEADER] for page header lines (mission name, tape/page, network info). "
@@ -35,6 +39,24 @@ STRUCTURED_OCR_PROMPT = (
     "Use [META] for END OF TAPE or similar meta lines. "
     "Do not add any extra commentary or formatting beyond the tag prefix. "
     "If uncertain, choose [COMM]."
+)
+
+COLUMN_OCR_PROMPT = (
+    "You are a precise OCR engine for NASA mission transcripts. "
+    "Each line is laid out as columns: timestamp (left), speaker (middle), text (right). "
+    "Read full lines across the page, do not stop at column boundaries. "
+    "Preserve reading order top-to-bottom, left-to-right, keeping original line breaks. "
+    "Output plain text only with original line breaks. "
+    "Do not add any conversational text or formatting outside the original content."
+)
+
+TEXT_COLUMN_OCR_PROMPT = (
+    "You are a precise OCR engine. "
+    "The image is a cropped right-side text column of a transcript page. "
+    "Extract ONLY the visible text in that column. "
+    "Return one line per transcript line, preserving order top-to-bottom. "
+    "Do not add timestamps or speakers. "
+    "Output plain text only with original line breaks."
 )
 
 CLASSIFY_OCR_PROMPT = (
@@ -140,8 +162,14 @@ class LMStudioOCRClient:
         """
         Send image to LM Studio for OCR processing.
         """
-        # Encode image to JPEG
-        _, buffer = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+        return self.ocr_image_with_prompt(image, self.prompt)
+
+    def ocr_image_with_prompt(self, image: np.ndarray, prompt: str) -> str:
+        """
+        Send image to LM Studio for OCR processing with a custom prompt.
+        """
+        # Encode image to JPEG with higher quality to preserve faint text
+        _, buffer = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
         base64_image = base64.b64encode(buffer).decode("utf-8")
 
         # Prepare payload
@@ -152,7 +180,7 @@ class LMStudioOCRClient:
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": self.prompt},
+                        {"type": "text", "text": prompt},
                         {
                             "type": "image_url",
                             "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
@@ -177,11 +205,9 @@ class LMStudioOCRClient:
                 
             text = result["choices"][0]["message"]["content"].strip()
             
-            # Simple validation: ensure we got some text
-            if not any(c.isalpha() for c in text):
-                # Fallback: maybe retry with a different token format if needed
-                # But for now, we'll just raise error if empty
-                raise OCRResponseError("Received empty or non-alphabetic OCR result")
+            # Simple validation: warn on empty OCR result, but don't hard-fail
+            if not text.strip():
+                logger.warning("Received empty OCR result")
                 
             return text
 

@@ -8,15 +8,13 @@ This document describes each stage of the processing pipeline.
 %%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#0B3D91', 'primaryTextColor': '#fff', 'primaryBorderColor': '#FC3D21', 'lineColor': '#8BA1B4', 'secondaryColor': '#8BA1B4', 'tertiaryColor': '#fff'}}}%%
 flowchart LR
     A[Extraction] --> B[Processing]
-    B --> C[Detection]
-    C --> D[Generation]
-    D --> E[OCR & Intelligence]
+    B --> C[Generation]
+    C --> D[OCR & Intelligence]
     
     style A fill:#0B3D91,stroke:#FC3D21,color:#fff
     style B fill:#0B3D91,stroke:#FC3D21,color:#fff
     style C fill:#0B3D91,stroke:#FC3D21,color:#fff
-    style D fill:#0B3D91,stroke:#FC3D21,color:#fff
-    style E fill:#FC3D21,stroke:#0B3D91,color:#fff
+    style D fill:#FC3D21,stroke:#0B3D91,color:#fff
 ```
 
 ---
@@ -139,7 +137,7 @@ Enhance text edges for better readability.
 
 ## Stage 3: Output Generation
 
-**Module**: `output_generator.py`
+**Module**: `utils/output_generator.py`
 
 Generates output files for each processed page.
 
@@ -159,15 +157,15 @@ Generates output files for each processed page.
 Sends enhanced images to LM Studio for text extraction. Optionally runs a second AI pass to tag each line using the OCR text plus the page image.
 
 Prompt text is loaded from `config/prompts.toml` when present. See `docs/PROMPTS.md`.
+When post-processing is enabled (`correct`, `signal`, `hybrid`), the OCR pass is forced to use the plain prompt to preserve line stability.
 
 ### OCR Client
 
 Uses OpenAI-compatible API with optimized workflow for speed:
 
-1. **Compression**: Encodes image as JPEG (85% quality) to minimize payload
-2. **Standard First**: Tries standard OpenAI `image_url` format (fastest)
-3. **Fallback**: Retries with various vision tokens (`<image>`, `<img>`) if standard fails
-4. **Validation**: Checks for minimum alphabetic content (2+ chars) to avoid false negatives
+1. **Compression**: Encodes image as JPEG (95% quality) to preserve faint text
+2. **Standard Format**: Uses OpenAI `image_url` format for the vision payload
+3. **Validation**: Logs a warning on empty OCR output but does not hard-fail
 
 **Configuration**:
 | Parameter | Default | Description |
@@ -176,25 +174,30 @@ Uses OpenAI-compatible API with optimized workflow for speed:
 | Timeout | 120s | Request timeout |
 | Max tokens | 4096 | Response limit |
 
-### Optional Classification Pass
+### Optional Post-Processing Passes
 
-When `ocr_postprocess = "hybrid"` (default):
+When `ocr_postprocess` is enabled:
 
-- **Input**: OCR text (line-numbered) + the page image.
-- **Output**: Same number of lines, same order, each prefixed with a tag:
-  `HEADER`, `COMM`, `ANNOTATION`, `FOOTER`, `META`.
-- **Guardrails**: The result is rejected if the line count or numbering does not match.
+- **correct**: Returns corrected line text (line-numbered) with the same count/order.
+- **signal**: Returns line numbers for `HEADER`, `FOOTER`, `META`, `ANNOTATION` only.
+- **hybrid**: Runs both passes; tagging is derived from the signal response and merged with corrected text.
+- **classify**: Legacy alias for `hybrid`.
+- **Guardrails**: Results are rejected if line count or numbering does not match.
 
 
 ### OCR Parser
 
-Parses plain text into structured blocks. When classification is enabled, it consumes tagged lines to improve block labeling, footer detection, and annotation handling.
+Parses plain text into structured blocks. When the signal pass is enabled, it consumes tagged lines to improve block labeling, footer detection, and annotation handling.
 
 **Detection patterns**:
 
 - Timestamp: `\d{2} \d{2} \d{2} \d{1,2}`
 - Speaker: `[A-Z][A-Z0-9]{1,6}`
 - Header keywords: GOSS, NET, TAPE, PAGE, APOLLO
+
+### Right-Column OCR Fill
+
+When `ocr_text_column_pass = true`, a second OCR pass is run on a cropped right-side text column. Missing `comm` text is filled from this pass and merged into adjacent lines when the continuation starts with punctuation or lowercase.
 
 ### Output Format
 
@@ -224,8 +227,11 @@ Parses plain text into structured blocks. When classification is enabled, it con
 ```
 
 **Raw text** (`*_ocr_raw.txt`): Unprocessed OCR output.
-**Classified text** (`*_ocr_classified.txt`): Tagged OCR lines (only when classification is accepted).
-**Rejected classification** (`*_ocr_classified_rejected.txt`): Classifier output that failed validation.
+**Corrected text** (`*_ocr_corrected.txt`): Line-corrected OCR output (when accepted).
+**Signal output** (`*_ocr_signal.txt`): Line-number tags for header/footer/meta/annotation (when accepted).
+**Rejected signal** (`*_ocr_signal_rejected.txt`): Signal output that failed validation.
+**Rejected correction** (`*_ocr_corrected_rejected.txt`): Correction output that failed validation.
+**Text column OCR** (`*_ocr_textcol.txt`): Right-column OCR output (if enabled and used).
 
 ### Skip OCR
 

@@ -64,6 +64,35 @@ CLASSIFY_OCR_PROMPT = (
     "Here is the OCR text:\n"
 )
 
+CORRECT_OCR_PROMPT = (
+    "You are a strict OCR text corrector for NASA transcripts. "
+    "You will receive OCR text with line breaks and the original page image. "
+    "Each OCR line is prefixed with a line number like \"12|\". "
+    "Return the SAME number of lines in the SAME order. "
+    "Each output line MUST keep the same line number prefix. "
+    "Do NOT add or remove lines. Do NOT merge or split lines. "
+    "Only correct obvious OCR errors (e.g., common misread letters, punctuation). "
+    "Do NOT paraphrase or rewrite content. "
+    "Do NOT invent content or guess missing words. "
+    "Here is the OCR text:\n"
+)
+
+SIGNAL_OCR_PROMPT = (
+    "You are a strict line classifier for NASA transcripts. "
+    "You will receive OCR text with line breaks and the original page image. "
+    "Each OCR line is prefixed with a line number like \"12|\". "
+    "Identify only the line numbers that are: HEADER, FOOTER, META, ANNOTATION. "
+    "Everything else is COMM by default. "
+    "Return exactly 4 lines in this format:\n"
+    "HEADER: 1,2\n"
+    "FOOTER: 33\n"
+    "META: 40\n"
+    "ANNOTATION: 5,12\n"
+    "Use empty values if none (e.g., \"FOOTER:\"). "
+    "Do not return any other text.\n"
+    "Here is the OCR text:\n"
+)
+
 
 class OCRError(Exception):
     """Base exception for OCR errors."""
@@ -91,6 +120,8 @@ class LMStudioOCRClient:
     max_tokens: int = 4096
     prompt: str = STRUCTURED_OCR_PROMPT
     classify_prompt: str = CLASSIFY_OCR_PROMPT
+    correct_prompt: str = CORRECT_OCR_PROMPT
+    signal_prompt: str = SIGNAL_OCR_PROMPT
     verify_ssl: bool = False
 
     def __post_init__(self):
@@ -237,6 +268,58 @@ class LMStudioOCRClient:
             if not classified:
                 raise OCRResponseError("Received empty classification result")
             return classified
+        except urllib.error.URLError as e:
+            raise OCRConnectionError(f"Connection failed: {e.reason}")
+        except Exception as e:
+            if "OCRResponseError" in str(type(e)):
+                raise e
+            raise OCRError(f"OCR classification failed: {e}")
+
+    def correct_image_text(self, image: np.ndarray, text: str, extra_instruction: str | None = None) -> str:
+        prompt = self.correct_prompt
+        if extra_instruction:
+            prompt = f"{self.correct_prompt}{extra_instruction}\n"
+        return self._run_text_image_prompt(image, text, prompt)
+
+    def signal_image_text(self, image: np.ndarray, text: str, extra_instruction: str | None = None) -> str:
+        prompt = self.signal_prompt
+        if extra_instruction:
+            prompt = f"{self.signal_prompt}{extra_instruction}\n"
+        return self._run_text_image_prompt(image, text, prompt)
+
+    def _run_text_image_prompt(self, image: np.ndarray, text: str, prompt: str) -> str:
+        _, buffer = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+        base64_image = base64.b64encode(buffer).decode("utf-8")
+        payload = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": f"{prompt}{text}"},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                        }
+                    ]
+                }
+            ],
+            "max_tokens": self.max_tokens,
+            "temperature": 0.0
+        }
+
+        try:
+            req = urllib.request.Request(
+                self.api_url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=self.timeout_s, context=self.ssl_context) as response:
+                result = json.loads(response.read().decode("utf-8"))
+            output = result["choices"][0]["message"]["content"].strip()
+            if not output:
+                raise OCRResponseError("Received empty classification result")
+            return output
         except urllib.error.URLError as e:
             raise OCRConnectionError(f"Connection failed: {e.reason}")
         except Exception as e:

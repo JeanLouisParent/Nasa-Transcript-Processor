@@ -22,7 +22,6 @@ from loguru import logger
 
 from src.core.config import PipelineConfig
 from src.processors.image_processor import ImageProcessor, ProcessingResult
-from src.processors.layout_detector import LayoutDetector, LayoutResult
 from src.utils.output_generator import OutputGenerator, PageOutput
 from src.processors.page_extractor import PageExtractor
 
@@ -35,20 +34,17 @@ class PageResult:
     Attributes:
         page_num: Page number (0-indexed)
         processing: Image processing result
-        layout: Layout detection result
         output: Output file paths
         success: True if processing completed without errors
         error: Error message if processing failed
     """
     page_num: int
     processing: ProcessingResult | None = None
-    layout: LayoutResult | None = None
     output: PageOutput | None = None
     success: bool = True
     error: str | None = None
     extract_s: float | None = None
     process_s: float | None = None
-    layout_s: float | None = None
     output_s: float | None = None
 
 
@@ -80,9 +76,7 @@ class TranscriptPipeline:
     This class orchestrates the complete processing workflow:
     1. Extract pages from PDF
     2. Process images (deskew, enhance)
-    3. Detect layout blocks
-    4. Classify blocks
-    5. Generate outputs
+    3. Generate outputs
 
     Supports parallel processing for improved performance on
     multi-core systems.
@@ -119,7 +113,6 @@ class TranscriptPipeline:
         # Initialize components
         self.extractor = PageExtractor(self.pdf_path, self.config)
         self.processor = ImageProcessor(self.config)
-        self.layout_detector = LayoutDetector(self.config)
         self.output_generator = OutputGenerator(self.output_dir, pdf_stem, self.config)
 
         # Thread lock for thread-safe PDF extraction
@@ -163,13 +156,7 @@ class TranscriptPipeline:
             result.processing = processing_result
             result.process_s = time.perf_counter() - process_start
 
-            # Step 3: Detect layout (includes block classification)
-            layout_start = time.perf_counter()
-            layout_result = self.layout_detector.detect(processing_result.image)
-            result.layout = layout_result
-            result.layout_s = time.perf_counter() - layout_start
-
-            # Step 4: Generate outputs
+            # Step 3: Generate outputs
             output_start = time.perf_counter()
             output = self.output_generator.generate(
                 page_num=page_num,

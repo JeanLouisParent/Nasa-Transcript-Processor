@@ -24,10 +24,16 @@ sys.path.insert(0, str(Path(__file__).parent))
 from src.core.config import PipelineConfig
 from src.config.global_config import GlobalConfig, load_global_config, load_prompt_config
 from src.processors.image_processor import ImageProcessor
-from src.processors.layout_detector import LayoutDetector
 from src.config.mission_config import load_mission_config
 from src.correctors.timestamp_index import GlobalTimestampIndex
-from src.ocr.ocr_client import PLAIN_OCR_PROMPT, STRUCTURED_OCR_PROMPT, LMStudioOCRClient
+from src.ocr.ocr_client import (
+    PLAIN_OCR_PROMPT,
+    STRUCTURED_OCR_PROMPT,
+    CLASSIFY_OCR_PROMPT,
+    CORRECT_OCR_PROMPT,
+    SIGNAL_OCR_PROMPT,
+    LMStudioOCRClient,
+)
 from src.ocr.ocr_parser import build_page_json, parse_ocr_text
 from src.utils.output_generator import OutputGenerator
 from src.processors.page_extractor import PageExtractor, get_pdf_info
@@ -98,9 +104,11 @@ def run_ocr_pipeline(
     plain_prompt = prompts_cfg.get("plain_ocr_prompt", PLAIN_OCR_PROMPT)
     structured_prompt = prompts_cfg.get("structured_ocr_prompt", STRUCTURED_OCR_PROMPT)
     classify_prompt = prompts_cfg.get("classify_prompt", None)
+    correct_prompt = prompts_cfg.get("correct_prompt", None)
+    signal_prompt = prompts_cfg.get("signal_prompt", None)
 
     prompt = structured_prompt
-    if config.ocr_prompt == "plain" or config.ocr_postprocess == "classify":
+    if config.ocr_prompt == "plain" or config.ocr_postprocess in ("classify", "correct", "signal", "hybrid"):
         prompt = plain_prompt
 
     client = LMStudioOCRClient(
@@ -109,7 +117,9 @@ def run_ocr_pipeline(
         timeout_s=120,
         max_tokens=4096,
         prompt=prompt,
-        classify_prompt=classify_prompt or None,
+        classify_prompt=classify_prompt or CLASSIFY_OCR_PROMPT,
+        correct_prompt=correct_prompt or CORRECT_OCR_PROMPT,
+        signal_prompt=signal_prompt or SIGNAL_OCR_PROMPT,
     )
 
     failures = 0
@@ -140,93 +150,120 @@ def run_ocr_pipeline(
 
             text = client.ocr_image(enhanced)
             parsed_text = text
-            if config.ocr_postprocess == "classify":
+            classify_time = 0.0
+            postprocess_mode = config.ocr_postprocess
+            if postprocess_mode == "classify":
+                postprocess_mode = "hybrid"
+
+            if postprocess_mode in ("correct", "hybrid", "signal"):
                 classify_start = time.perf_counter()
                 ocr_lines_raw = [line for line in text.splitlines() if line.strip()]
                 numbered_text = "\n".join(f"{i+1}|{line}" for i, line in enumerate(ocr_lines_raw))
-                extra = (
-                    f"There are exactly {len(ocr_lines_raw)} lines. "
-                    f"Output exactly {len(ocr_lines_raw)} tagged lines. "
-                    "Format must be: [TAG] N|original line text."
-                )
-                classified = client.classify_image_text(enhanced, numbered_text, extra_instruction=extra)
-                classify_time = time.perf_counter() - classify_start
+                corrected_text = text
 
-                def normalize_classified(output_text: str) -> tuple[str | None, dict[str, object]]:
-                    classified_lines = [line for line in output_text.splitlines() if line.strip()]
-                    tag_re = re.compile(r"^\[(HEADER|FOOTER|ANNOTATION|COMM|META)\]\s*", re.IGNORECASE)
+                def normalize_correction(output_text: str) -> tuple[str | None, dict[str, object]]:
+                    lines = [line for line in output_text.splitlines() if line.strip()]
                     num_re = re.compile(r"^(\d+)\|\s*")
-                    has_tag = True
-                    has_text = True
                     nums = []
-                    normalized_lines = []
-                    for line in classified_lines:
-                        content = line.strip()
-                        tag_match = tag_re.match(content)
-                        if tag_match:
-                            content_after = content[tag_match.end():].lstrip()
-                            num_match = num_re.match(content_after)
-                            if not num_match:
-                                nums = []
-                                break
-                            num = int(num_match.group(1))
-                            text_part = content_after[num_match.end():].strip()
-                        else:
-                            num_first = num_re.match(content)
-                            if not num_first:
-                                has_tag = False
-                                nums = []
-                                break
-                            num = int(num_first.group(1))
-                            after_num = content[num_first.end():].lstrip()
-                            tag_match = tag_re.match(after_num)
-                            if not tag_match:
-                                has_tag = False
-                                nums = []
-                                break
-                            text_part = after_num[tag_match.end():].strip()
-                        nums.append(num)
-                        if not text_part:
-                            has_text = False
-                        tag = tag_match.group(0).strip() if tag_match else ""
-                        normalized_lines.append(f"{tag} {text_part}".strip())
+                    normalized = []
+                    for line in lines:
+                        m = num_re.match(line.strip())
+                        if not m:
+                            nums = []
+                            break
+                        nums.append(int(m.group(1)))
+                        normalized.append(line[m.end():].strip())
                     num_ok = nums == list(range(1, len(ocr_lines_raw) + 1))
-                    ok = len(ocr_lines_raw) == len(classified_lines) and has_tag and has_text and num_ok
-                    return ("\n".join(normalized_lines) if ok else None, {
+                    ok = len(ocr_lines_raw) == len(lines) and num_ok
+                    return ("\n".join(normalized) if ok else None, {
                         "input_lines": len(ocr_lines_raw),
-                        "output_lines": len(classified_lines),
-                        "has_tag": has_tag,
-                        "has_text": has_text,
+                        "output_lines": len(lines),
                         "num_ok": num_ok
                     })
 
-                normalized, stats = normalize_classified(classified)
-                if normalized:
-                    parsed_text = normalized
-                    (page_dir / f"{page_id}_ocr_classified.txt").write_text(parsed_text + "\n", encoding="utf-8")
-                else:
-                    stricter = (
-                        "You must output one tagged line for EVERY input line. "
-                        "Do not skip or merge any line. "
+                if postprocess_mode in ("correct", "hybrid"):
+                    extra = (
+                        f"There are exactly {len(ocr_lines_raw)} lines. "
                         f"Output exactly {len(ocr_lines_raw)} lines. "
-                        "Format must be: [TAG] N|original line text."
+                        "Keep the format: N|original line text."
                     )
-                    classified_retry = client.classify_image_text(enhanced, numbered_text, extra_instruction=stricter)
-                    normalized_retry, stats_retry = normalize_classified(classified_retry)
-                    if normalized_retry:
-                        parsed_text = normalized_retry
-                        (page_dir / f"{page_id}_ocr_classified.txt").write_text(parsed_text + "\n", encoding="utf-8")
-                    else:
-                        (page_dir / f"{page_id}_ocr_classified_rejected.txt").write_text(classified_retry + "\n", encoding="utf-8")
-                        logger.warning(
-                            f"Classifier output rejected for page {page_num + 1}: "
-                            f"input_lines={stats_retry['input_lines']} output_lines={stats_retry['output_lines']} "
-                            f"has_tag={stats_retry['has_tag']} has_text={stats_retry['has_text']} "
-                            f"num_ok={stats_retry['num_ok']}"
-                        )
+                    corrected = client.correct_image_text(enhanced, numbered_text, extra_instruction=extra)
                     classify_time = time.perf_counter() - classify_start
-            else:
-                classify_time = 0.0
+                    normalized, stats = normalize_correction(corrected)
+                    if normalized:
+                        corrected_text = normalized
+                        (page_dir / f"{page_id}_ocr_corrected.txt").write_text(corrected + "\n", encoding="utf-8")
+                    else:
+                        (page_dir / f"{page_id}_ocr_corrected_rejected.txt").write_text(corrected + "\n", encoding="utf-8")
+                        logger.warning(
+                            f"OCR correction rejected for page {page_num + 1}: "
+                            f"input_lines={stats['input_lines']} output_lines={stats['output_lines']} "
+                            f"num_ok={stats['num_ok']}"
+                        )
+
+                tagged_text = corrected_text
+                if postprocess_mode in ("signal", "hybrid"):
+                    signal_start = time.perf_counter()
+                    extra = (
+                        f"There are exactly {len(ocr_lines_raw)} lines. "
+                        f"Only return line numbers between 1 and {len(ocr_lines_raw)}."
+                    )
+                    base_lines = [line for line in (corrected_text.splitlines() if corrected_text else ocr_lines_raw) if line.strip()]
+                    signal_input = numbered_text if postprocess_mode == "signal" else "\n".join(
+                        f"{i+1}|{line}" for i, line in enumerate(base_lines)
+                    )
+                    signal = client.signal_image_text(enhanced, signal_input, extra_instruction=extra)
+                    classify_time += time.perf_counter() - signal_start
+
+                    def parse_signal(output_text: str) -> dict[int, str] | None:
+                        mapping = {}
+                        lines = [line.strip() for line in output_text.splitlines() if line.strip()]
+                        if len(lines) != 4:
+                            return None
+                        tags = {"HEADER", "FOOTER", "META", "ANNOTATION"}
+                        for line in lines:
+                            if ":" not in line:
+                                return None
+                            key, value = line.split(":", 1)
+                            key = key.strip().upper()
+                            if key not in tags:
+                                return None
+                            value = value.strip()
+                            if not value:
+                                continue
+                            for part in value.split(","):
+                                part = part.strip()
+                                if not part:
+                                    continue
+                                try:
+                                    idx = int(part)
+                                except ValueError:
+                                    return None
+                                if idx < 1 or idx > len(ocr_lines_raw):
+                                    return None
+                                mapping[idx] = key.lower()
+                        return mapping
+
+                    signal_map = parse_signal(signal)
+                    if signal_map:
+                        tagged_lines = []
+                        base_lines = corrected_text.splitlines() if corrected_text else ocr_lines_raw
+                        base_lines = [line for line in base_lines if line.strip()]
+                        for i, line in enumerate(base_lines, start=1):
+                            tag = signal_map.get(i)
+                            if tag:
+                                tagged_lines.append(f"[{tag.upper()}] {line}")
+                            else:
+                                tagged_lines.append(line)
+                        tagged_text = "\n".join(tagged_lines)
+                        (page_dir / f"{page_id}_ocr_signal.txt").write_text(signal + "\n", encoding="utf-8")
+                    else:
+                        (page_dir / f"{page_id}_ocr_signal_rejected.txt").write_text(signal + "\n", encoding="utf-8")
+                        logger.warning(
+                            f"OCR signal rejected for page {page_num + 1}: output_lines={len(signal.splitlines())}"
+                        )
+
+                parsed_text = tagged_text
 
             lines = [line.strip() for line in parsed_text.splitlines() if line.strip()]
             rows = parse_ocr_text(parsed_text, page_num, mission_keywords)
@@ -262,7 +299,6 @@ def run_ocr_pipeline(
             timing_info = (
                 f"extract={pr.extract_s or 0:.3f}s "
                 f"process={pr.process_s or 0:.3f}s "
-                f"layout={pr.layout_s or 0:.3f}s "
                 f"output={pr.output_s or 0:.3f}s "
                 f"ocr={timings[page_num]['ocr_s']:.3f}s "
                 f"classify={timings[page_num]['classify_s']:.3f}s "
@@ -308,8 +344,8 @@ def cli():
 )
 @click.option(
     "--ocr-postprocess",
-    type=click.Choice(["none", "classify"], case_sensitive=False),
-    help="Post-process OCR text with classifier (overrides config)"
+    type=click.Choice(["none", "classify", "correct", "signal", "hybrid"], case_sensitive=False),
+    help="Post-process OCR text (overrides config)"
 )
 @click.option("--timing", is_flag=True, help="Print per-page timing breakdowns")
 @click.option("-v", "--verbose", is_flag=True, help="Verbose logging")
@@ -423,7 +459,6 @@ def process(
                     f"Page {page_no:04d} timings: "
                     f"extract={pr.extract_s or 0:.3f}s "
                     f"process={pr.process_s or 0:.3f}s "
-                    f"layout={pr.layout_s or 0:.3f}s "
                     f"output={pr.output_s or 0:.3f}s "
                     f"ocr={ocr_t.get('ocr_s', 0):.3f}s "
                     f"classify={ocr_t.get('classify_s', 0):.3f}s "

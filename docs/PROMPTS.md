@@ -64,6 +64,43 @@ Incorrect example: "1|[HEADER] APOLLO 11 AIR-TO-GROUND VOICE TRANSCRIPTION".
 Here is the OCR text:
 ```
 
+### correct_prompt
+
+Used when `ocr_postprocess = "correct"` or as part of `ocr_postprocess = "hybrid"`.
+
+```
+You are a strict OCR text corrector for NASA transcripts.
+You will receive OCR text with line breaks and the original page image.
+Each OCR line is prefixed with a line number like "12|".
+Return the SAME number of lines in the SAME order.
+Each output line MUST keep the same line number prefix.
+Do NOT add or remove lines. Do NOT merge or split lines.
+Only correct obvious OCR errors (e.g., common misread letters, punctuation).
+Do NOT paraphrase or rewrite content.
+Do NOT invent content or guess missing words.
+Here is the OCR text:
+```
+
+### signal_prompt
+
+Used when `ocr_postprocess = "signal"` or as part of `ocr_postprocess = "hybrid"`.
+
+```
+You are a strict line classifier for NASA transcripts.
+You will receive OCR text with line breaks and the original page image.
+Each OCR line is prefixed with a line number like "12|".
+Identify only the line numbers that are: HEADER, FOOTER, META, ANNOTATION.
+Everything else is COMM by default.
+Return exactly 4 lines in this format:
+HEADER: 1,2
+FOOTER: 33
+META: 40
+ANNOTATION: 5,12
+Use empty values if none (e.g., "FOOTER:").
+Do not return any other text.
+Here is the OCR text:
+```
+
 ## Validation Rules
 
 Classification output is rejected unless it:

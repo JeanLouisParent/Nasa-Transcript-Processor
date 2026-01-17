@@ -39,7 +39,7 @@ graph TD
 Once lines are separated, they are classified based on context. This happens via two paths:
 
 - **AI tags (optional)**: When classification is enabled, each line is explicitly tagged as `HEADER`, `COMM`, `ANNOTATION`, `FOOTER`, or `META`.
-- **Heuristic fallback**: If tags are absent or invalid, the parser uses keyword and layout heuristics.
+- **Heuristic fallback**: If tags are absent or invalid, the parser uses keyword-based heuristics.
 
 - **Comm**: A block starting with a timestamp.
 - **Location Extraction**: Parenthesized lines like `(TRANQ)` are treated as locations and attached to the current or immediately preceding COMM block.

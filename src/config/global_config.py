@@ -15,9 +15,9 @@ class GlobalConfig:
     input_dir: Path = Path("input")
     output_dir: Path = Path("output")
     ocr_url: str = "http://localhost:1234"
-    ocr_model: str = "qwen3-vl-4b"
+    ocr_model: str = "qwen/qwen3-vl-4b"
     ocr_prompt: str = "structured"
-    ocr_postprocess: str = "classify"
+    ocr_postprocess: str = "hybrid"
     dpi: int = 300
     parallel: bool = True
     workers: int = 4

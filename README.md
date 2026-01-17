@@ -1,12 +1,11 @@
 # NASA Transcript Processing Pipeline
 
-Pipeline for processing scanned NASA mission transcripts. Performs page-by-page image enhancement, geometric layout detection, and OCR via LM Studio with an optional AI-assisted classification pass.
+Pipeline for processing scanned NASA mission transcripts. Performs page-by-page image enhancement and OCR via LM Studio with an optional AI-assisted classification pass.
 
 ## Features
 
 - **Page-by-page processing**: Processes one page at a time without loading entire PDF.
 - **Image enhancement**: Deskew, contrast improvement, noise removal, text sharpening.
-- **Geometric layout detection**: Detects text blocks using visual analysis (no OCR).
 - **Speaker Location Extraction**: Automatically identifies the origin of the speaker (e.g., `TRANQ`, `COLUMBIA`) and separates it from the dialogue.
 - **Global Timestamp Indexing**: Maintains chronological integrity across the entire document, fixing OCR noise and duplicate timecodes.
 - **LM Studio OCR**: High-performance AI OCR (optimized JPEG payload, <5s/page).
@@ -46,7 +45,7 @@ pip install -r requirements.txt
 The pipeline is operated via the `main.py` CLI. It currently supports two main commands: `process` and `info`.
 
 ### Processing a Transcript
-The `process` command is the main entry point. It extracts pages, enhances images, detects layout, and performs OCR.
+The `process` command is the main entry point. It extracts pages, enhances images, and performs OCR.
 
 ```bash
 # Basic processing (looks for the file in the 'input/' folder)
@@ -57,7 +56,7 @@ python main.py process AS11_TEC.PDF
 python main.py process AS11_TEC.PDF --pages 1-50
 python main.py process AS11_TEC.PDF --pages 10,12,14-16
 
-# Skip OCR (useful for testing image enhancement or layout detection)
+# Skip OCR (useful for testing image enhancement)
 python main.py process AS11_TEC.PDF --no-ocr
 
 # Clean previous output before starting
@@ -91,11 +90,11 @@ output_dir = "output"
 
 # OCR Settings
 ocr_url = "http://localhost:1234"
-ocr_model = "qwen3-vl-4b"
+ocr_model = "qwen/qwen3-vl-4b"
 ocr_timeout = 120
 ocr_max_tokens = 4096
 ocr_prompt = "structured" # "structured" or "plain"
-ocr_postprocess = "classify"  # "none" or "classify"
+ocr_postprocess = "hybrid"  # "none", "correct", "signal", or "hybrid"
 
 # Processing Settings
 dpi = 300

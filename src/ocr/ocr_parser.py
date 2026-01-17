@@ -140,8 +140,11 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None)
         has_lower = any(c.islower() for c in line)
         location_only = LOCATION_PAREN_RE.match(line)
 
-        if forced_type == "annotation" and prev_comm_like and has_lower and "(REV" not in upper and "(RFV" not in upper:
-            forced_type = "comm"
+        if forced_type == "annotation":
+            if TIMESTAMP_PREFIX_RE.match(line) or TIMESTAMP_STRICT_RE.match(line):
+                forced_type = "comm"
+            elif prev_comm_like and has_lower and "(REV" not in upper and "(RFV" not in upper:
+                forced_type = "comm"
 
         if forced_type == "comm" and not saw_comm_or_ts:
             if not TIMESTAMP_PREFIX_RE.match(line) and not TIMESTAMP_STRICT_RE.match(line):

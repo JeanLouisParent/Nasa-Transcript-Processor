@@ -51,7 +51,7 @@ Extracts individual pages from PDF as high-resolution images.
 
 **Module**: `image_processor.py`
 
-Enhances scanned images for better OCR and layout detection.
+Enhances scanned images for better OCR.
 
 ### 2.1 Grayscale Conversion
 
@@ -137,77 +137,7 @@ Enhance text edges for better readability.
 
 ---
 
-## Stage 3: Layout Detection
-
-**Module**: `layout_detector.py`
-
-Detects text blocks using geometric analysis (no OCR).
-
-### 3.1 Binarization
-
-Convert to binary using adaptive threshold.
-
-```python
-binary = cv2.adaptiveThreshold(image, 255,
-    cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-    cv2.THRESH_BINARY_INV, blockSize=15, C=5)
-```
-
-### 3.2 Text Connection
-
-Connect characters into blocks using morphological dilation.
-
-**Horizontal** (connect characters in lines):
-
-```python
-h_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (50, 1))
-```
-
-**Vertical** (connect lines in blocks):
-
-```python
-v_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 10))
-```
-
-**Parameters**:
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `line_kernel_width` | 50 | Horizontal connection |
-| `line_kernel_height` | 1 | |
-| `block_kernel_width` | 5 | Vertical connection |
-| `block_kernel_height` | 10 | |
-
-### 3.3 Block Detection
-
-Find contours, filter by size, merge overlaps.
-
-**Parameters**:
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `min_block_area` | 1000 px² | Minimum block size |
-| `max_block_area_ratio` | 0.9 | Maximum as ratio of page |
-
-### 3.4 Block Classification
-
-Classify blocks using geometric heuristics.
-
-**Block Types**:
-
-- **HEADER**: Top zone, network/page/tape markers
-- **FOOTER**: Bottom zone, asterisk lines
-- **ANNOTATION**: Centered, isolated vertically
-- **COMM**: Triplet structure (timestamp | speaker | text)
-
-**Parameters**:
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `col1_end` | 0.15 | Timestamp/speaker boundary |
-| `col2_end` | 0.30 | Speaker/text boundary |
-| `header_ratio` | 0.10 | Header zone height |
-
----
-
-## Stage 4: Output Generation
+## Stage 3: Output Generation
 
 **Module**: `output_generator.py`
 
@@ -222,7 +152,7 @@ Generates output files for each processed page.
 
 ---
 
-## Stage 5: OCR (Optional)
+## Stage 4: OCR (Optional)
 
 **Modules**: `ocr_client.py`, `ocr_parser.py`
 
@@ -248,7 +178,7 @@ Uses OpenAI-compatible API with optimized workflow for speed:
 
 ### Optional Classification Pass
 
-When `ocr_postprocess = "classify"` (default):
+When `ocr_postprocess = "hybrid"` (default):
 
 - **Input**: OCR text (line-numbered) + the page image.
 - **Output**: Same number of lines, same order, each prefixed with a tag:

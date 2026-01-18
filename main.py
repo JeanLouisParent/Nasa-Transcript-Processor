@@ -454,7 +454,7 @@ def cli():
     type=click.Choice(["none", "classify", "correct", "signal", "hybrid"], case_sensitive=False),
     help="Post-process OCR text (overrides config)"
 )
-@click.option("--timing", is_flag=True, help="Print per-page timing breakdowns")
+@click.option("--timing/--no-timing", default=None, help="Print per-page timing breakdowns")
 @click.option("-v", "--verbose", is_flag=True, help="Verbose logging")
 def process(
     pdf_name: str,
@@ -464,7 +464,7 @@ def process(
     ocr_url: str,
     ocr_prompt: str,
     ocr_postprocess: str,
-    timing: bool,
+    timing: bool | None,
     verbose: bool
 ):
     """
@@ -480,6 +480,9 @@ def process(
         global_cfg.ocr_prompt = ocr_prompt.lower()
     if ocr_postprocess:
         global_cfg.ocr_postprocess = ocr_postprocess.lower()
+
+    if timing is None:
+        timing = bool(global_cfg.pipeline_defaults.get("timing", False))
 
     # Resolve PDF
     pdf_path = resolve_pdf_path(pdf_name, global_cfg.input_dir)

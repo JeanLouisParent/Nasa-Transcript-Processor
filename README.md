@@ -111,6 +111,7 @@ ocr_text_column_pass = true
 dpi = 300
 parallel = true
 workers = 4
+timing = true
 
 # Image Enhancement
 clahe_clip_limit = 2.0

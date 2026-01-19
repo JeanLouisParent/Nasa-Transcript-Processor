@@ -3,6 +3,36 @@
 This document details the algorithmic logic used to transform raw OCR text into
 structured NASA transcripts.
 
+## Overview
+
+<!-- markdownlint-disable MD013 -->
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#0B3D91', 'secondaryColor': '#8BA1B4', 'tertiaryColor': '#fff' }}}%%
+flowchart TD
+    Input([Raw OCR Text]) --> Split[Iterative Line Splitting]
+    Split --> Parser{Parser State Machine}
+
+    subgraph Classification
+        Parser -->|Prefix TS| BlockComm[Comm Block]
+        Parser -->|Keywords| BlockMeta[Meta/Header]
+        Parser -->|Text Only| BlockCont[Continuation]
+    end
+
+    subgraph Intelligence["Intelligence Chain"]
+        BlockComm --> Spk[Speaker Corrector]
+        Spk --> Time[Timestamp Corrector]
+        Time --> Text[Text Corrector]
+    end
+
+    BlockCont --> Stitch[Smart Stitching]
+    BlockMeta --> Index[Update Index]
+    Text --> Stitch
+
+    Stitch --> Meta[Dead Reckoning]
+    Meta --> Output([Final JSON])
+```
+<!-- markdownlint-enable MD013 -->
+
 ## 1. The Block Parser (`src.ocr.ocr_parser`)
 
 The parser is the core intelligence of the pipeline. It transforms a stream of

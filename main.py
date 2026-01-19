@@ -9,6 +9,7 @@ Usage:
     python main.py info AS11_TEC.PDF
 """
 
+import json
 import shutil
 import sys
 import time
@@ -20,30 +21,29 @@ from loguru import logger
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.core.config import PipelineConfig
 from src.config.global_config import GlobalConfig, load_global_config, load_prompt_config
-from src.processors.image_processor import ImageProcessor
 from src.config.mission_config import load_mission_config
+from src.core.config import PipelineConfig
+from src.core.pipeline import PageResult, TranscriptPipeline
 from src.correctors.timestamp_index import GlobalTimestampIndex
 from src.ocr.ocr_client import (
-    PLAIN_OCR_PROMPT,
     COLUMN_OCR_PROMPT,
+    PLAIN_OCR_PROMPT,
     TEXT_COLUMN_OCR_PROMPT,
     LMStudioOCRClient,
 )
 from src.ocr.ocr_parser import (
-    build_page_json,
-    parse_ocr_text,
     HEADER_PAGE_ONLY_RE,
     HEADER_TAPE_ONLY_RE,
     HEADER_TAPE_PAGE_ONLY_RE,
-    SPEAKER_LINE_RE,
     LOCATION_PAREN_RE,
+    SPEAKER_LINE_RE,
+    build_page_json,
+    parse_ocr_text,
 )
-from src.utils.output_generator import OutputGenerator
-from src.processors.page_extractor import PageExtractor, get_pdf_info
-from src.core.pipeline import PageResult, TranscriptPipeline
-from src.utils.console import PipelineConsole, console as rich_console
+from src.processors.page_extractor import get_pdf_info
+from src.utils.console import PipelineConsole
+from src.utils.console import console as rich_console
 
 # Initialize console manager
 console = PipelineConsole()
@@ -73,7 +73,8 @@ def parse_pages(page_spec: str, max_pages: int) -> list[int]:
 
     pages = set()
     for token in page_spec.replace(" ", "").split(","):
-        if not token: continue
+        if not token:
+            continue
         if "-" in token:
             parts = token.split("-", 1)
             try:
@@ -81,15 +82,18 @@ def parse_pages(page_spec: str, max_pages: int) -> list[int]:
                 end = int(parts[1])
             except ValueError:
                 raise click.BadParameter(f"Invalid range: {token}") from None
-            if start < 0: raise click.BadParameter("Page numbers must be >= 1")
+            if start < 0:
+                raise click.BadParameter("Page numbers must be >= 1")
             pages.update(range(start, min(end, max_pages)))
         else:
             try:
                 page = int(token) - 1
             except ValueError:
                 raise click.BadParameter(f"Invalid page: {token}") from None
-            if page < 0: raise click.BadParameter("Page numbers must be >= 1")
-            if page < max_pages: pages.add(page)
+            if page < 0:
+                raise click.BadParameter("Page numbers must be >= 1")
+            if page < max_pages:
+                pages.add(page)
 
     return sorted(pages)
 
@@ -99,10 +103,10 @@ def run_ocr_pipeline(
     config: GlobalConfig,
     page_results: list[PageResult],
     page_offset: int = 0,
-    valid_speakers: list[str] = None,
-    text_replacements: dict[str, str] = None,
-    mission_keywords: list[str] = None,
-    valid_locations: list[str] = None,
+    valid_speakers: list[str] | None = None,
+    text_replacements: dict[str, str] | None = None,
+    mission_keywords: list[str] | None = None,
+    valid_locations: list[str] | None = None,
     mission_overrides: dict[str, object] | None = None
 ) -> tuple[int, dict[int, dict[str, float]]]:
     """Run OCR on already processed pages."""
@@ -137,17 +141,16 @@ def run_ocr_pipeline(
     if mission_overrides is None:
         mission_overrides = {}
     ocr_text_column_pass = bool(
-        mission_overrides.get(
-            "ocr_text_column_pass",
-            config.pipeline_defaults.get("ocr_text_column_pass", False),
-        )
+        mission_overrides.get("ocr_text_column_pass")
+        or config.pipeline_defaults.get("ocr_text_column_pass")
+        or False
     )
-    col2_end = float(
-        mission_overrides.get(
-            "col2_end",
-            config.pipeline_defaults.get("col2_end", 0.30),
-        )
+    col2_end_val = (
+        mission_overrides.get("col2_end")
+        or config.pipeline_defaults.get("col2_end")
+        or 0.30
     )
+    col2_end = float(str(col2_end_val)) if col2_end_val else 0.30
     previous_block_type = None
     tape_x = 1
     tape_y = 1
@@ -175,32 +178,28 @@ def run_ocr_pipeline(
                 raw_text_output += "\n"
             # Normalize newlines for parsing.
             text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
-            text_lines = text.splitlines()
-            text = "\n".join(text_lines)
-            ocr_lines_raw = [line for line in text_lines if line.strip()]
-            parsed_text = text
-            postprocess_time = 0.0
 
             heuristics_start = time.perf_counter()
-            lines = [line.strip() for line in parsed_text.splitlines() if line.strip()]
-            rows = parse_ocr_text(parsed_text, page_num, mission_keywords)
-            
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            rows = parse_ocr_text(text, page_num, mission_keywords)
+
             # Get last timestamp from previous pages
             initial_ts = ts_index.get_last_timestamp_before(page_num)
-            
+
             payload = build_page_json(
-                rows, lines, page_num, page_offset, 
-                valid_speakers, text_replacements, 
+                rows, lines, page_num, page_offset,
+                valid_speakers, text_replacements,
                 mission_keywords, valid_locations,
                 initial_ts=initial_ts,
                 previous_block_type=previous_block_type
             )
 
             if ocr_text_column_pass:
-                missing_text_blocks = [
+                missing_text_blocks: list[dict] = [
                     b for b in payload.get("blocks", [])
                     if b.get("type") == "comm" and not b.get("text")
                 ]
+                column_lines: list[str] = []
                 if missing_text_blocks:
                     h, w = enhanced.shape[:2]
                     start_x = min(w - 1, max(0, int(w * col2_end) + 5))
@@ -219,7 +218,7 @@ def run_ocr_pipeline(
                         and not HEADER_TAPE_PAGE_ONLY_RE.match(line)
                     ]
                     if column_lines:
-                        for block, line in zip(missing_text_blocks, column_lines):
+                        for block, line in zip(missing_text_blocks, column_lines, strict=False):
                             block["text"] = line
                         (ocr_dir / f"{page_id}_ocr_textcol.txt").write_text(
                             column_text + "\n", encoding="utf-8"
@@ -262,13 +261,12 @@ def run_ocr_pipeline(
 
             # Update index
             page_timestamps = [
-                b.get("timestamp") for b in payload.get("blocks", []) 
+                b.get("timestamp") for b in payload.get("blocks", [])
                 if b.get("type") == "comm" and b.get("timestamp")
             ]
             ts_index.add_timestamps(page_num, page_timestamps)
 
             (ocr_dir / f"{page_id}_ocr_raw.txt").write_text(raw_text_output, encoding="utf-8")
-            import json
             (page_dir / f"{page_id}.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
             page_duration = time.perf_counter() - page_start
@@ -286,7 +284,7 @@ def run_ocr_pipeline(
                 f"ocr_total={timings[page_num]['ocr_total_s']:.3f}s"
             )
             console.update_ocr_progress(page_num, page_duration, timing_info=timing_info)
-            
+
             blocks = payload.get("blocks", [])
             if blocks:
                 previous_block_type = blocks[-1].get("type")
@@ -376,15 +374,18 @@ def process(
         parallel=global_cfg.parallel,
         max_workers=global_cfg.workers,
     )
-    
+
     # Apply defaults and overrides
     for key, value in global_cfg.pipeline_defaults.items():
-        if hasattr(config, key): setattr(config, key, value)
+        if hasattr(config, key):
+            setattr(config, key, value)
     for key, value in mission_cfg.layout_overrides.items():
-        if hasattr(config, key): setattr(config, key, value)
+        if hasattr(config, key):
+            setattr(config, key, value)
 
     if errors := config.validate():
-        for e in errors: print(f"Config error: {e}")
+        for e in errors:
+            print(f"Config error: {e}")
         raise SystemExit(1)
 
     # Setup output
@@ -394,7 +395,7 @@ def process(
 
     # Initialize pipeline
     pipeline = TranscriptPipeline(pdf_path, global_cfg.output_dir, config)
-    
+
     # Parse pages
     page_numbers = parse_pages(pages or "", pipeline.page_count)
     if not page_numbers:
@@ -407,7 +408,7 @@ def process(
     # Run image processing pipeline
     # We pass a lambda as callback to update the rich progress bar
     result = pipeline.process_pages(
-        page_numbers, 
+        page_numbers,
         progress_callback=lambda current, total: console.update_image_progress(1)
     )
 
@@ -419,18 +420,19 @@ def process(
             global_replacements = global_parser.get("text_replacements", {})
         else:
             global_replacements = {}
-            
+
         mission_replacements = mission_cfg.layout_overrides.get("text_replacements", {})
         text_replacements = {**global_replacements, **mission_replacements}
-        
-        mission_keywords = global_cfg.pipeline_defaults.get("lexicon", {}).get("mission_keywords")
+
+        lexicon_cfg = global_cfg.pipeline_defaults.get("lexicon", {})
+        mission_keywords = lexicon_cfg.get("mission_keywords") if isinstance(lexicon_cfg, dict) else None
         valid_speakers = mission_cfg.layout_overrides.get("valid_speakers")
         valid_locations = mission_cfg.layout_overrides.get("valid_locations")
-        
+
         ocr_failures, ocr_timings = run_ocr_pipeline(
-            pdf_path, 
-            global_cfg, 
-            result.page_results, 
+            pdf_path,
+            global_cfg,
+            result.page_results,
             mission_cfg.page_offset,
             valid_speakers,
             text_replacements,
@@ -453,7 +455,7 @@ def process(
                     f"postprocess={ocr_t.get('postprocess_s', 0):.3f}s "
                     f"ocr_total={ocr_t.get('ocr_total_s', 0):.3f}s"
                 )
-    
+
     console.finish()
 
     if result.failed_pages > 0:
@@ -474,16 +476,16 @@ def info(pdf_name: str):
 
     info = get_pdf_info(pdf_path)
     # Using rich to display info nicely
-    from rich.table import Table
     from rich import box
-    
+    from rich.table import Table
+
     table = Table(title=f"PDF Info: {pdf_path.name}", box=box.ROUNDED)
     table.add_column("Property", style="cyan")
     table.add_column("Value", style="white")
     table.add_row("Pages", str(info['page_count']))
     for key in ("title", "author", "creator", "producer"):
         table.add_row(key.title(), str(info[key] or '(none)'))
-    
+
     rich_console.print(table)
 
 

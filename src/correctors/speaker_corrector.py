@@ -6,7 +6,7 @@ Uses fuzzy matching to fix OCR errors (e.g. "CD R" -> "CDR").
 """
 
 import difflib
-from typing import Optional
+
 
 class SpeakerCorrector:
     def __init__(self, valid_speakers: list[str]):
@@ -100,5 +100,5 @@ class SpeakerCorrector:
             # 2. Correct existing speaker field
             if block.get("speaker"):
                 block["speaker"] = self.correct_speaker(block["speaker"])
-        
+
         return blocks

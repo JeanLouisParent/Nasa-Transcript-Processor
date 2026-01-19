@@ -7,7 +7,6 @@ Prefers monotonic ordering while tolerating small backward OCR slips.
 
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -42,11 +41,11 @@ class TimestampCorrector:
     Corrects and sequences timestamps while preserving likely-valid OCR reads.
     """
 
-    def __init__(self, initial_ts: Optional[str] = None, backward_tolerance_s: int = 300):
-        self.last_valid_ts: Optional[Timecode] = None
+    def __init__(self, initial_ts: str | None = None, backward_tolerance_s: int = 300):
+        self.last_valid_ts: Timecode | None = None
         self.ts_pattern = re.compile(r"(\d{1,2})[\s:]+(\d{1,2})[\s:]+(\d{1,2})[\s:]+(\d{1,2})")
         self.backward_tolerance_s = backward_tolerance_s
-        
+
         if initial_ts:
             self.last_valid_ts = self.parse(initial_ts)
 
@@ -54,7 +53,7 @@ class TimestampCorrector:
         """Replace common OCR artifacts in timestamps."""
         if not text:
             return ""
-        
+
         # Replace common misreads
         norm = text.upper()
         norm = norm.replace("O", "0").replace("Q", "0")
@@ -62,12 +61,12 @@ class TimestampCorrector:
         norm = norm.replace("S", "5").replace("B", "8")
         norm = norm.replace(")", "0").replace("(", "0")
         norm = norm.replace("'", "")
-        
+
         # Handle dashes
         norm = norm.replace("--", "00").replace("-", "0")
         return norm
 
-    def parse(self, text: str) -> Optional[Timecode]:
+    def parse(self, text: str) -> Timecode | None:
         """Attempt to parse a timecode string."""
         clean = self.normalize_noise(text)
         match = self.ts_pattern.search(clean)
@@ -76,19 +75,19 @@ class TimestampCorrector:
             parts = re.findall(r"\d+", clean)
             if len(parts) == 3:
                 parts.append("00")
-            
+
             if len(parts) == 4:
                 try:
                     return Timecode(int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3]))
                 except ValueError:
                     return None
             return None
-        
+
         try:
             return Timecode(
-                int(match.group(1)), 
-                int(match.group(2)), 
-                int(match.group(3)), 
+                int(match.group(1)),
+                int(match.group(2)),
+                int(match.group(3)),
                 int(match.group(4))
             )
         except ValueError:

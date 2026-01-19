@@ -4,7 +4,7 @@ Global configuration loader (TOML).
 Stores defaults for input/output locations and OCR server.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import tomllib
@@ -12,8 +12,8 @@ import tomllib
 
 @dataclass
 class GlobalConfig:
-    input_dir: Path = Path("input")
-    output_dir: Path = Path("output")
+    input_dir: Path = field(default_factory=lambda: Path("input"))
+    output_dir: Path = field(default_factory=lambda: Path("output"))
     ocr_url: str = "http://localhost:1234"
     ocr_model: str = "qwen/qwen3-vl-4b"
     ocr_prompt: str = "plain"
@@ -21,11 +21,7 @@ class GlobalConfig:
     parallel: bool = True
     workers: int = 4
     # Store other config keys to pass to PipelineConfig
-    pipeline_defaults: dict[str, object] = None
-
-    def __post_init__(self):
-        if self.pipeline_defaults is None:
-            self.pipeline_defaults = {}
+    pipeline_defaults: dict[str, object] = field(default_factory=dict)
 
 
 def load_global_config(config_path: Path) -> GlobalConfig:
@@ -33,7 +29,7 @@ def load_global_config(config_path: Path) -> GlobalConfig:
         return GlobalConfig()
 
     data = tomllib.loads(config_path.read_text(encoding="utf-8"))
-    
+
     # Extract known global fields
     input_dir = Path(data.get("input_dir", "input"))
     output_dir = Path(data.get("output_dir", "output"))
@@ -48,7 +44,7 @@ def load_global_config(config_path: Path) -> GlobalConfig:
     pipeline_defaults = {
         k: v for k, v in data.items()
         if k not in (
-            "input_dir", "output_dir", "ocr_url", "ocr_model", 
+            "input_dir", "output_dir", "ocr_url", "ocr_model",
             "dpi", "parallel", "workers"
         )
     }

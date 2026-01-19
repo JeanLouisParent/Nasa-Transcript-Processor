@@ -7,7 +7,6 @@ to ensure chronological integrity and support cross-page corrections.
 
 import json
 from pathlib import Path
-from typing import Optional, Dict, List
 
 
 class GlobalTimestampIndex:
@@ -15,16 +14,16 @@ class GlobalTimestampIndex:
     Registry of all timestamps found in a mission, organized by page.
     """
 
-    def __init__(self, index_path: Optional[Path] = None):
+    def __init__(self, index_path: Path | None = None):
         self.index_path = index_path
         # Structure: { page_num: [timestamp_strings] }
-        self.data: Dict[int, List[str]] = {}
+        self.data: dict[int, list[str]] = {}
 
-    def add_timestamps(self, page_num: int, timestamps: List[str]):
+    def add_timestamps(self, page_num: int, timestamps: list[str]):
         """Register all timestamps found on a specific page."""
         self.data[page_num] = timestamps
 
-    def get_last_timestamp_before(self, page_num: int) -> Optional[str]:
+    def get_last_timestamp_before(self, page_num: int) -> str | None:
         """
         Look back through previous pages to find the last valid timestamp.
         """
@@ -38,10 +37,10 @@ class GlobalTimestampIndex:
         """Save index to disk."""
         if not self.index_path:
             return
-        
+
         # Ensure parent directory exists
         self.index_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         serializable_data = {str(k): v for k, v in self.data.items()}
         self.index_path.write_text(json.dumps(serializable_data, indent=2), encoding="utf-8")
 

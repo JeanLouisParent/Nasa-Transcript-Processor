@@ -45,10 +45,10 @@ def load_mission_config(config_dir: Path, pdf_name: str) -> MissionConfig:
         if conf_file_name and conf_file_name.lower() == pdf_name_lower:
             # Extract known fields
             page_offset = int(conf.get("page_offset", 0) or 0)
-            
+
             # Collect everything else as layout overrides
             overrides = {
-                k: v for k, v in conf.items() 
+                k: v for k, v in conf.items()
                 if k not in ("file_name", "page_offset")
             }
 

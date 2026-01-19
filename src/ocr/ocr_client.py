@@ -9,7 +9,7 @@ import json
 import ssl
 import urllib.error
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
@@ -79,7 +79,7 @@ class LMStudioOCRClient:
             self.api_url = f"{self.base_url}/v1/chat/completions"
         else:
             self.api_url = f"{self.base_url}/chat/completions"
-            
+
         # Create unverified SSL context if requested
         self.ssl_context = None
         if not self.verify_ssl:
@@ -126,21 +126,21 @@ class LMStudioOCRClient:
                 data=json.dumps(payload).encode("utf-8"),
                 headers={"Content-Type": "application/json"}
             )
-            
+
             with urllib.request.urlopen(req, timeout=self.timeout_s, context=self.ssl_context) as response:
                 result = json.loads(response.read().decode("utf-8"))
-                
+
             text = result["choices"][0]["message"]["content"].strip()
-            
+
             # Simple validation: warn on empty OCR result, but don't hard-fail
             if not text.strip():
                 logger.warning("Received empty OCR result")
-                
+
             return text
 
         except urllib.error.URLError as e:
-            raise OCRConnectionError(f"Connection failed: {e.reason}")
+            raise OCRConnectionError(f"Connection failed: {e.reason}") from e
         except Exception as e:
             if "OCRResponseError" in str(type(e)):
-                raise e
-            raise OCRError(f"OCR processing failed: {e}")
+                raise
+            raise OCRError(f"OCR processing failed: {e}") from e

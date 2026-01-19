@@ -22,8 +22,8 @@ from loguru import logger
 
 from src.core.config import PipelineConfig
 from src.processors.image_processor import ImageProcessor, ProcessingResult
-from src.utils.output_generator import OutputGenerator, PageOutput
 from src.processors.page_extractor import PageExtractor
+from src.utils.output_generator import OutputGenerator, PageOutput
 
 
 @dataclass
@@ -300,7 +300,7 @@ class TranscriptPipeline:
         results = []
         total = end - start
 
-        for i, page_num in enumerate(range(start, end)):
+        for page_num in range(start, end):
             result = self.process_page(page_num)
             results.append(result)
 
@@ -328,7 +328,7 @@ class TranscriptPipeline:
         """
         results = []
         total = end - start
-        
+
         with ThreadPoolExecutor(max_workers=self.config.max_workers) as executor:
             # Submit all tasks
             future_to_page = {

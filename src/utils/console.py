@@ -3,15 +3,21 @@ Console Output Manager.
 Handles rich console output, progress bars, and status tables.
 """
 from datetime import datetime, timedelta
-from typing import Optional, List
+
+from rich import box
 from rich.console import Console, Group
+from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
-from rich.progress import BarColumn, Progress, SpinnerColumn, TaskID, TextColumn, TimeElapsedColumn, TimeRemainingColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 from rich.table import Table
-from rich.layout import Layout
-from rich import box
-from rich.text import Text
 
 console = Console()
 
@@ -43,11 +49,16 @@ class PipelineConsole:
         stats_table = Table(box=box.SIMPLE, expand=True, show_header=False)
         stats_table.add_column("Metric", style="dim white")
         stats_table.add_column("Value", style="bold white", justify="right")
-        stats_table.add_row("Total Pages", str(self.stats["total_pages"]))
-        stats_table.add_row("Processed", f"{self.stats["processed"]}/{self.stats["total_pages"]}")
-        stats_table.add_row("OCR Progress", f"{self.stats["ocr_done"]}/{self.stats["ocr_total"]}" if self.stats["ocr_total"] else "-")
-        stats_table.add_row("Failures", f"[red]{self.stats["failed"]}[/red]" if self.stats["failed"] > 0 else "0")
-        if self.stats["ocr_done"] > 0 and self.stats["ocr_total"] > 0 and self.stats["ocr_start_time"]:
+        processed = self.stats["processed"]
+        total_pages = self.stats["total_pages"]
+        ocr_done = self.stats["ocr_done"]
+        ocr_total = self.stats["ocr_total"]
+        failed = self.stats["failed"]
+        stats_table.add_row("Total Pages", str(total_pages))
+        stats_table.add_row("Processed", f"{processed}/{total_pages}")
+        stats_table.add_row("OCR Progress", f"{ocr_done}/{ocr_total}" if ocr_total else "-")
+        stats_table.add_row("Failures", f"[red]{failed}[/red]" if failed > 0 else "0")
+        if ocr_done > 0 and ocr_total > 0 and self.stats["ocr_start_time"]:
             elapsed = (datetime.now() - self.stats["ocr_start_time"]).total_seconds()
             if elapsed > 0:
                 speed = self.stats["ocr_done"] / elapsed
@@ -66,14 +77,17 @@ class PipelineConsole:
         self.live.start()
 
     def log(self, message: str):
-        self.logs.append(f"[dim]{datetime.now().strftime("%H:%M:%S")}[/dim] {message}")
-        if self.live: self.live.update(self._generate_layout())
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.logs.append(f"[dim]{timestamp}[/dim] {message}")
+        if self.live:
+            self.live.update(self._generate_layout())
 
     def update_image_progress(self, advance: int = 1):
         self.progress.update(self.overall_task, advance=advance)
         self.stats["processed"] += advance
         self.stats["success"] += advance
-        if self.live: self.live.update(self._generate_layout())
+        if self.live:
+            self.live.update(self._generate_layout())
 
     def start_ocr(self, total_to_ocr: int):
         self.stats["ocr_total"] = total_to_ocr
@@ -92,7 +106,8 @@ class PipelineConsole:
         self.log(f"Page {page_num+1:<3} [red]Error[/red]: {error}")
 
     def finish(self):
-        if self.live: self.live.stop()
+        if self.live:
+            self.live.stop()
         duration_str = str(datetime.now() - self.stats["start_time"]).split(".")[0]
         console.print("\n")
         console.rule("[bold white]MISSION ACCOMPLISHED")
@@ -101,8 +116,11 @@ class PipelineConsole:
         summary.add_column("Value", style="bold white")
         summary.add_row("Total Duration", duration_str)
         summary.add_row("Pages Processed", str(self.stats["processed"]))
-        if self.stats["ocr_done"] > 0: summary.add_row("OCR Completed", str(self.stats["ocr_done"]))
-        summary.add_row("Failures", f"[red]{self.stats["failed"]}[/red]" if self.stats["failed"] else "[green]0[/green]")
-        summary.add_row("Status", "[green]SUCCESS[/green]" if not self.stats["failed"] else "[red]FAILED[/red]")
+        ocr_done = self.stats["ocr_done"]
+        failed = self.stats["failed"]
+        if ocr_done > 0:
+            summary.add_row("OCR Completed", str(ocr_done))
+        summary.add_row("Failures", f"[red]{failed}[/red]" if failed else "[green]0[/green]")
+        summary.add_row("Status", "[green]SUCCESS[/green]" if not failed else "[red]FAILED[/red]")
         console.print(summary)
         console.print("\n")

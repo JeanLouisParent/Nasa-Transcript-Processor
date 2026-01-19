@@ -5,26 +5,16 @@ __pycache__/
 *.so
 .Python
 build/
-develop-eggs/
 dist/
-downloads/
 eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
 *.egg
 
 # Virtual environments
 venv/
-ENV/
-env/
 .venv/
+env/
+ENV/
 
 # IDE
 .idea/
@@ -33,20 +23,19 @@ env/
 *.swo
 *~
 
-# Testing
+# Linting & Testing
+.ruff_cache/
+.mypy_cache/
 .pytest_cache/
 .coverage
 htmlcov/
-.tox/
-.nox/
 
 # Output directories (generated data)
 output/
-results/
+input/
 
 # Large files
 *.pdf
-!test/*.pdf
 
 # OS
 .DS_Store
@@ -57,4 +46,4 @@ Thumbs.db
 logs/
 
 # Config overrides (keep defaults, ignore local)
-configs/*.local.yaml
+config/*.local.toml

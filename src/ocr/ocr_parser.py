@@ -77,7 +77,7 @@ def should_split_embedded_timestamp(line: str, match: re.Match) -> bool:
     return False
 
 
-def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None) -> list[dict]:
+def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] | None = None) -> list[dict]:
     """
     Parse plain OCR output into structured rows.
     """
@@ -91,21 +91,21 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None)
             raw = raw[tag_match.end():].strip()
         if raw:
             lines.append({"text": raw, "forced": forced_type})
-    
+
     # Pre-process lines iteratively to split embedded components
     current_processing = lines
     final_lines = []
-    
+
     while current_processing:
         entry = current_processing.pop(0)
         line = entry["text"]
         forced_type = entry["forced"]
         match = None
-        
+
         # If line starts with a timestamp, search for splits after the initial timestamp zone
         search_start = 0
         if TIMESTAMP_PREFIX_RE.match(line):
-            search_start = 12 
+            search_start = 12
 
         # 1. Check for embedded timestamp
         ts_match = TIMESTAMP_EMBEDDED_RE.search(line, search_start)
@@ -118,25 +118,28 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None)
         if mission_keywords:
             for kw in mission_keywords:
                 if len(kw) > 3:
-                    kw_re = re.compile(rf"\s+({{re.escape(kw)}})", re.IGNORECASE)
+                    kw_re = re.compile(rf"\s+({re.escape(kw)})", re.IGNORECASE)
                     m = kw_re.search(line, search_start)
                     if m:
                         if not kw_match or m.start() < kw_match.start():
                             kw_match = m
-        
+
         matches = [m for m in [ts_match, rev_match, kw_match] if m]
         if matches:
             match = min(matches, key=lambda x: x.start())
             start = match.start()
             part1 = line[:start].strip()
             part2 = line[start:].strip()
-            if part1: final_lines.append({"text": part1, "forced": forced_type})
-            if part2: current_processing.insert(0, {"text": part2, "forced": forced_type})
+            if part1:
+                final_lines.append({"text": part1, "forced": forced_type})
+            if part2:
+                current_processing.insert(0, {"text": part2, "forced": forced_type})
         else:
             final_lines.append({"text": line, "forced": forced_type})
-    
+
     lines = final_lines
-    if not lines: return []
+    if not lines:
+        return []
 
     # Find first timestamp to identify header zone
     first_ts_idx = next(
@@ -161,7 +164,8 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None)
 
     def flush_pending():
         nonlocal pending_ts, pending_speaker, pending_location, pending_text, line_index, pending_force_comm, pending_ts_hint
-        if not pending_ts and not pending_speaker and not pending_text: return
+        if not pending_ts and not pending_speaker and not pending_text:
+            return
         line_index += 1
         row = {
             "page": page_num + 1, "line": line_index,
@@ -173,7 +177,10 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None)
         if pending_ts_hint:
             row["timestamp_suffix_hint"] = pending_ts_hint
         rows.append(row)
-        pending_ts = ""; pending_speaker = ""; pending_location = ""; pending_text = []
+        pending_ts = ""
+        pending_speaker = ""
+        pending_location = ""
+        pending_text = []
         pending_force_comm = False
         pending_ts_hint = None
 
@@ -435,8 +442,9 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None)
             if loc_at_start_match:
                 pending_location = loc_at_start_match.group(1).strip()
                 line = line[loc_at_start_match.end():].strip()
-                if not line: continue
-            
+                if not line:
+                    continue
+
             if SPEAKER_LINE_RE.match(line) or SPEAKER_PAREN_RE.match(line):
                 pending_speaker = f"{pending_speaker} {line}".strip() if pending_speaker else line
                 continue
@@ -511,24 +519,32 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] = None)
 
 
 def fuzzy_find(text: str, keyword: str, threshold: float = 0.6) -> bool:
-    if not text or not keyword: return False
-    text_upper = text.upper(); keyword_upper = keyword.upper()
+    if not text or not keyword:
+        return False
+    text_upper = text.upper()
+    keyword_upper = keyword.upper()
     if len(keyword_upper) <= 3:
         return bool(re.search(rf"\b{re.escape(keyword_upper)}\b", text_upper))
-    if keyword_upper in text_upper: return True
+    if keyword_upper in text_upper:
+        return True
     words = text_upper.split()
     for word in words:
-        if difflib.SequenceMatcher(None, word, keyword_upper).ratio() >= threshold: return True
+        if difflib.SequenceMatcher(None, word, keyword_upper).ratio() >= threshold:
+            return True
     return False
 
 
 def extract_header_metadata(lines: list[str], page_num: int, page_offset: int = 0) -> dict:
     result = {"page": page_num + 1 + page_offset, "tape": None, "is_apollo_title": False}
-    first_ts_idx = next((i for i, l in enumerate(lines) if TIMESTAMP_STRICT_RE.match(l) or TIMESTAMP_PREFIX_RE.match(l)), None)
+    first_ts_idx = next(
+        (i for i, ln in enumerate(lines) if TIMESTAMP_STRICT_RE.match(ln) or TIMESTAMP_PREFIX_RE.match(ln)),
+        None
+    )
     header_lines = lines[:first_ts_idx] if first_ts_idx is not None else lines[:10]
     for line in header_lines:
         norm = normalize_whitespace(line).upper()
-        if fuzzy_find(norm, "APOLLO") and fuzzy_find(norm, "TRANSCRIPTION"): result["is_apollo_title"] = True
+        if fuzzy_find(norm, "APOLLO") and fuzzy_find(norm, "TRANSCRIPTION"):
+            result["is_apollo_title"] = True
     return result
 
 
@@ -536,10 +552,10 @@ def clean_trailing_footer(text: str) -> str:
     # 1. Double pattern: "Tape XX Page YY" or "Page YY Tape XX"
     text = re.sub(r"[\s\.\n\r]+(?:T[A-Z0-9]{2,})\s*[\d/IX]+\s+(?:P[A-Z0-9]{2,})\s*[\d/IX]+\s*$", "", text, flags=re.IGNORECASE)
     text = re.sub(r"[\s\.\n\r]+(?:P[A-Z0-9]{2,})\s*[\d/IX]+\s+(?:T[A-Z0-9]{2,})\s*[\d/IX]+\s*$", "", text, flags=re.IGNORECASE)
-    
+
     # 2. Single pattern: "Tape XX" or "Page YY" at the very end
     text = re.sub(r"[\s\.\n\r]+(?:TAPS|TAPC|TAPE|TYPE|TANE|PAGE|PAGS|PACE|PAXE|PAGO|Paze|Page|Pags)\s*[\d/IX]+\s*$", "", text, flags=re.IGNORECASE)
-    
+
     return text.strip()
 
 
@@ -548,27 +564,31 @@ def build_page_json(
     lines: list[str],
     page_num: int,
     page_offset: int = 0,
-    valid_speakers: list[str] = None,
-    text_replacements: dict[str, str] = None,
-    mission_keywords: list[str] = None,
-    valid_locations: list[str] = None,
-    initial_ts: str = None,
-    previous_block_type: str = None
+    valid_speakers: list[str] | None = None,
+    text_replacements: dict[str, str] | None = None,
+    mission_keywords: list[str] | None = None,
+    valid_locations: list[str] | None = None,
+    initial_ts: str | None = None,
+    previous_block_type: str | None = None
 ) -> dict:
     header_info = extract_header_metadata(lines, page_num, page_offset)
     blocks = []
     for row in rows:
-        if row["type"] == "header": continue
+        if row["type"] == "header":
+            continue
         block_type = "continuation" if row["type"] == "text" else row["type"]
         block = {"type": block_type}
-        
+
         if block_type == "comm":
-            if row["timestamp"]: block["timestamp"] = row["timestamp"]
-            if row["speaker"]: block["speaker"] = row["speaker"]
-            if row["location"]: block["location"] = row["location"]
+            if row["timestamp"]:
+                block["timestamp"] = row["timestamp"]
+            if row["speaker"]:
+                block["speaker"] = row["speaker"]
+            if row["location"]:
+                block["location"] = row["location"]
             if row.get("timestamp_suffix_hint"):
                 block["timestamp_suffix_hint"] = row["timestamp_suffix_hint"]
-            
+
         if row["text"]:
             text_value = row["text"]
             if (
@@ -636,7 +656,7 @@ def build_page_json(
 
     if blocks and blocks[0]["type"] == "continuation" and previous_block_type in ("comm", "continuation"):
         blocks[0]["continuation_from_prev"] = True
-    
+
     # Final cleanup of footers and locations on merged text
     for block in blocks:
         if block.get("text"):
@@ -646,11 +666,11 @@ def build_page_json(
                 for loc in valid_locations:
                     text = re.sub(rf"^\({re.escape(loc)}\)\s*", "", text, flags=re.IGNORECASE)
             block["text"] = text.strip()
-    
+
     # Post-process timestamps
     ts_corrector = TimestampCorrector(initial_ts)
     blocks = ts_corrector.process_blocks(blocks)
-    
+
     # Fuzzy correct locations and speakers
     if valid_locations:
         for block in blocks:

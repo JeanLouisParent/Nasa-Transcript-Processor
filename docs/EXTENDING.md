@@ -29,17 +29,20 @@ config = PipelineConfig(
     bilateral_d=9,
 )
 
-pipeline = TranscriptPipeline(Path("APOLLO12.PDF"), Path("output"), config)
+pipeline = TranscriptPipeline(
+    Path("APOLLO12.PDF"),
+    Path("output"),
+    config
+)
 pipeline.process_range(0, pipeline.page_count)
 ```
 
 ### Common Adjustments
 
-| Parameter | When to adjust |
-|-----------|----------------|
+| Parameter          | When to adjust     |
+| ------------------ | ------------------ |
 | `clahe_clip_limit` | Low contrast scans |
-| `bilateral_d` | Noisy scans |
-
+| `bilateral_d`      | Noisy scans        |
 
 ---
 
@@ -91,6 +94,7 @@ if self.config.adaptive_binarize:
 ### Step 1: Update Config
 
 In `src/config.py`, the `output_format` field already supports:
+
 - `png` (default, lossless)
 - `tiff` (lossless)
 - `webp` (smaller files)
@@ -143,16 +147,15 @@ client = LMStudioOCRClient(
 
 ### Optional Classification Pass
 
-Enable the second-pass classifier (OCR text + image) via config:
+Enable the second-pass classifier (OCR text + image) via config.
 
-```toml
-```
-
-The classifier output is strictly validated for line count/order. If invalid, the parser falls back to the raw OCR text.
+The classifier output is strictly validated for line count/order. If
+invalid, the parser falls back to the raw OCR text.
 
 ### Prompt Customization
 
-Edit `config/prompts.toml` to override the OCR and classification prompts without changing code.
+Edit `config/prompts.toml` to override the OCR and classification
+prompts without changing code.
 
 ### Custom Parser
 
@@ -213,20 +216,27 @@ result = pipeline.process_all()
 print(f"Processed: {result.successful_pages}/{result.total_pages}")
 
 # Run OCR separately
-client = LMStudioOCRClient(base_url="http://localhost:1234", model="qwen3-vl-4b")
+client = LMStudioOCRClient(
+    base_url="http://localhost:1234",
+    model="qwen3-vl-4b"
+)
 
 for page_result in result.page_results:
     if page_result.success:
         # Read enhanced image
         import cv2
-        img = cv2.imread(str(page_result.output.enhanced_image), cv2.IMREAD_GRAYSCALE)
+        img = cv2.imread(
+            str(page_result.output.enhanced_image),
+            cv2.IMREAD_GRAYSCALE
+        )
 
         # OCR
         # Optional classification pass (text + image)
         text = client.ocr_image(img)
         rows = parse_ocr_text(text, page_result.page_num)
-        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
         json_data = build_page_json(rows, lines, page_result.page_num)
 
-        print(f"Page {page_result.page_num + 1}: {len(json_data['blocks'])} blocks")
+        print(f"Page {page_result.page_num + 1}: "
+              f"{len(json_data['blocks'])} blocks")
 ```

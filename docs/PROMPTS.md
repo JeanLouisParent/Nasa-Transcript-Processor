@@ -4,7 +4,8 @@ This document lists the OCR prompts used by the pipeline.
 
 ## File Location
 
-Prompts are stored in `config/prompts.toml`. If the file is missing, the pipeline falls back to built-in defaults.
+Prompts are stored in `config/prompts.toml`. If the file is missing,
+the pipeline falls back to built-in defaults.
 
 ## Prompts
 
@@ -12,36 +13,45 @@ Prompts are stored in `config/prompts.toml`. If the file is missing, the pipelin
 
 Used when `ocr_prompt = "plain"`.
 
-```
-You are a precise OCR engine. Extract all visible text from the page image.
-Preserve reading order top-to-bottom, left-to-right, keeping original line breaks.
-Each transcript line spans multiple columns (timestamp, speaker, text). Read the full line across the page.
-Do not stop at the speaker column; include the rightmost text for each line.
-You may apply minimal corrections to obvious OCR artifacts (e.g., G() -> GO, O/0, I/1) but only when highly confident.
+```text
+You are a precise OCR engine. Extract all visible text from the page
+image.
+Preserve reading order top-to-bottom, left-to-right, keeping original
+line breaks.
+Each transcript line spans multiple columns (timestamp, speaker, text).
+Read the full line across the page.
+Do not stop at the speaker column; include the rightmost text for each
+line.
+You may apply minimal corrections to obvious OCR artifacts
+(e.g., G() -> GO, O/0, I/1) but only when highly confident.
 Ensure sentences read sensibly without inventing or adding any words.
 Do NOT hallucinate or guess missing content.
 Output plain text only with original line breaks.
-Do not add any conversational text or formatting outside the original content.
+Do not add any conversational text or formatting outside the original
+content.
 ```
 
 ### column_ocr_prompt
 
 Used when `ocr_prompt = "column"`.
 
-```
+```text
 You are a precise OCR engine for NASA mission transcripts.
-Each line is laid out as columns: timestamp (left), speaker (middle), text (right).
+Each line is laid out as columns: timestamp (left), speaker (middle),
+text (right).
 Read full lines across the page, do not stop at column boundaries.
-Preserve reading order top-to-bottom, left-to-right, keeping original line breaks.
+Preserve reading order top-to-bottom, left-to-right, keeping original
+line breaks.
 Output plain text only with original line breaks.
-Do not add any conversational text or formatting outside the original content.
+Do not add any conversational text or formatting outside the original
+content.
 ```
 
 ### text_column_prompt
 
 Used during the optional right-column OCR pass.
 
-```
+```text
 You are a precise OCR engine.
 The image is a cropped right-side text column of a transcript page.
 Extract ONLY the visible text in that column.
@@ -52,4 +62,5 @@ Output plain text only with original line breaks.
 
 ## Validation Rules
 
-No post-processing outputs are generated; the pipeline uses plain OCR output by default.
+No post-processing outputs are generated; the pipeline uses plain OCR
+output by default.

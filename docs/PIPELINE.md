@@ -5,12 +5,19 @@ This document describes each stage of the processing pipeline.
 ## Overview
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#0B3D91', 'primaryTextColor': '#fff', 'primaryBorderColor': '#FC3D21', 'lineColor': '#8BA1B4', 'secondaryColor': '#8BA1B4', 'tertiaryColor': '#fff'}}}%%
+%%{init: {'theme': 'base', 'themeVariables': {
+  'primaryColor': '#0B3D91',
+  'primaryTextColor': '#fff',
+  'primaryBorderColor': '#FC3D21',
+  'lineColor': '#8BA1B4',
+  'secondaryColor': '#8BA1B4',
+  'tertiaryColor': '#fff'
+}}}%%
 flowchart LR
     A[Extraction] --> B[Processing]
     B --> C[Generation]
     C --> D[OCR & Intelligence]
-    
+
     style A fill:#0B3D91,stroke:#FC3D21,color:#fff
     style B fill:#0B3D91,stroke:#FC3D21,color:#fff
     style C fill:#0B3D91,stroke:#FC3D21,color:#fff
@@ -39,9 +46,10 @@ Extracts individual pages from PDF as high-resolution images.
 - `*_raw.pdf`: Single-page PDF file
 
 **Parameters**:
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `dpi` | 300 | Output resolution (72-600) |
+
+| Parameter | Default | Description              |
+| --------- | ------- | ------------------------ |
+| `dpi`     | 300     | Output resolution (72-600) |
 
 ---
 
@@ -68,10 +76,11 @@ Detect and correct page rotation using Hough line detection.
 5. Rotate if angle exceeds threshold
 
 **Parameters**:
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `deskew_angle_threshold` | 0.5° | Minimum angle to correct |
-| `deskew_max_angle` | 10.0° | Maximum expected skew |
+
+| Parameter                | Default | Description               |
+| ------------------------ | ------- | ------------------------- |
+| `deskew_angle_threshold` | 0.5 deg | Minimum angle to correct  |
+| `deskew_max_angle`       | 10 deg  | Maximum expected skew     |
 
 ### 2.3 Size Normalization
 
@@ -85,32 +94,36 @@ Standardize page dimensions to Letter size at 300 DPI.
 4. Center on canvas with uniform margins
 
 **Parameters**:
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `target_width` | 2550 px | 8.5" at 300 DPI |
-| `target_height` | 3300 px | 11" at 300 DPI |
-| `margin_px` | 75 px | ~0.25" margin |
+
+| Parameter       | Default | Description       |
+| --------------- | ------- | ----------------- |
+| `target_width`  | 2550 px | 8.5 inch at 300 DPI |
+| `target_height` | 3300 px | 11 inch at 300 DPI  |
+| `margin_px`     | 75 px   | ~0.25 inch margin   |
 
 ### 2.4 CLAHE Contrast Enhancement
 
-Improve local contrast using Contrast Limited Adaptive Histogram Equalization.
+Improve local contrast using Contrast Limited Adaptive Histogram
+Equalization.
 
 **Parameters**:
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `clahe_clip_limit` | 2.0 | Contrast limit |
-| `clahe_grid_size` | 8 | Tile size |
+
+| Parameter          | Default | Description    |
+| ------------------ | ------- | -------------- |
+| `clahe_clip_limit` | 2.0     | Contrast limit |
+| `clahe_grid_size`  | 8       | Tile size      |
 
 ### 2.5 Bilateral Noise Removal
 
 Reduce noise while preserving edges.
 
 **Parameters**:
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `bilateral_d` | 9 | Filter diameter |
-| `bilateral_sigma_color` | 75 | Color sigma |
-| `bilateral_sigma_space` | 75 | Space sigma |
+
+| Parameter               | Default | Description     |
+| ----------------------- | ------- | --------------- |
+| `bilateral_d`           | 9       | Filter diameter |
+| `bilateral_sigma_color` | 75      | Color sigma     |
+| `bilateral_sigma_space` | 75      | Space sigma     |
 
 ### 2.6 Spot Cleaning
 
@@ -120,7 +133,7 @@ Remove small artifacts using connected component analysis.
 
 1. Threshold to binary (dark pixels = foreground)
 2. Find connected components
-3. Remove components < 15 px² or small squares < 50 px²
+3. Remove components < 15 px squared or small squares < 50 px squared
 4. Replace with white
 
 ### 2.7 Unsharp Mask
@@ -128,10 +141,11 @@ Remove small artifacts using connected component analysis.
 Enhance text edges for better readability.
 
 **Parameters**:
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `unsharp_amount` | 1.5 | Sharpening strength |
-| `unsharp_sigma` | 1.0 | Blur sigma |
+
+| Parameter        | Default | Description         |
+| ---------------- | ------- | ------------------- |
+| `unsharp_amount` | 1.5     | Sharpening strength |
+| `unsharp_sigma`  | 1.0     | Blur sigma          |
 
 ---
 
@@ -149,9 +163,10 @@ Generates output files for each processed page.
 | `*_enhanced.png` | Processed grayscale image   |
 
 Outputs are organized per page:
+
 - `output/<PDF_STEM>/Page_NNN/` contains the JSON and subfolders
-- `output/<PDF_STEM>/Page_NNN/assets/` stores the raw PDF + enhanced image
-- `output/<PDF_STEM>/Page_NNN/ocr/` stores OCR artifacts (`*_ocr_raw.txt`, etc.)
+- `output/<PDF_STEM>/Page_NNN/assets/` stores raw PDF + enhanced image
+- `output/<PDF_STEM>/Page_NNN/ocr/` stores OCR artifacts
 
 ---
 
@@ -159,24 +174,30 @@ Outputs are organized per page:
 
 **Modules**: `ocr_client.py`, `ocr_parser.py`
 
-Sends enhanced images to LM Studio for text extraction. Optionally runs a second AI pass to tag each line using the OCR text plus the page image.
+Sends enhanced images to LM Studio for text extraction. Optionally runs
+a second AI pass to tag each line using the OCR text plus the page image.
 
-Prompt text is loaded from `config/prompts.toml` when present. See `docs/PROMPTS.md`.
+Prompt text is loaded from `config/prompts.toml` when present.
+See `docs/PROMPTS.md`.
 
 ### OCR Client
 
 Uses OpenAI-compatible API with optimized workflow for speed:
 
-1. **Compression**: Encodes image as JPEG (95% quality) to preserve faint text
-2. **Standard Format**: Uses OpenAI `image_url` format for the vision payload
-3. **Validation**: Logs a warning on empty OCR output but does not hard-fail
+1. **Compression**: Encodes image as JPEG (95% quality) to preserve
+   faint text
+2. **Standard Format**: Uses OpenAI `image_url` format for the vision
+   payload
+3. **Validation**: Logs a warning on empty OCR output but does not
+   hard-fail
 
 **Configuration**:
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| Model | qwen3-vl-4b | Vision model |
-| Timeout | 120s | Request timeout |
-| Max tokens | 4096 | Response limit |
+
+| Parameter  | Default     | Description      |
+| ---------- | ----------- | ---------------- |
+| Model      | qwen3-vl-4b | Vision model     |
+| Timeout    | 120s        | Request timeout  |
+| Max tokens | 4096        | Response limit   |
 
 ### OCR Parser
 
@@ -190,8 +211,10 @@ Parses plain text into structured blocks using heuristics.
 
 ### Right-Column OCR Fill
 
-When `ocr_text_column_pass = true`, a second OCR pass is run on a cropped right-side text column. Missing `comm` text is filled from this pass and merged into adjacent lines when the continuation starts with punctuation or lowercase.
-
+When `ocr_text_column_pass = true`, a second OCR pass is run on a
+cropped right-side text column. Missing `comm` text is filled from
+this pass and merged into adjacent lines when the continuation starts
+with punctuation or lowercase.
 
 ### Output Format
 
@@ -221,7 +244,9 @@ When `ocr_text_column_pass = true`, a second OCR pass is run on a cropped right-
 ```
 
 **Raw text** (`ocr/*_ocr_raw.txt`): Unprocessed OCR output.
-**Text column OCR** (`ocr/*_ocr_textcol.txt`): Right-column OCR output (if enabled and used).
+
+**Text column OCR** (`ocr/*_ocr_textcol.txt`): Right-column OCR output
+(if enabled and used).
 
 ### Skip OCR
 

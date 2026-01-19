@@ -1,14 +1,14 @@
 # Architecture Documentation
 
-This document describes the architecture of the NASA Transcript Processing Pipeline.
+This document describes the architecture of the NASA Transcript Processing
+Pipeline.
 
 ## Overview
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#0B3D91', 'primaryTextColor': '#fff', 'primaryBorderColor': '#FC3D21', 'lineColor': '#8BA1B4', 'secondaryColor': '#8BA1B4', 'tertiaryColor': '#fff'}}}%%
 flowchart TD
     CLI[main.py CLI] --> ORCH[pipeline.py Orchestrator]
-    
+
     subgraph Core[Core Engine]
         ORCH --> CFG[config.py]
     end
@@ -18,7 +18,7 @@ flowchart TD
         IMG[image_processor.py]
     end
 
-    subgraph Intelligence[OCR & Post-Processing]
+    subgraph Intelligence[OCR and Post-Processing]
         CLIENT[ocr_client.py]
         PARSER[ocr_parser.py]
         CORR[correctors/*.py]
@@ -34,12 +34,15 @@ flowchart TD
 ## Module Responsibilities
 
 ### config.py
+
 **Purpose**: Centralized configuration management
 
 **Key Classes**:
+
 - `PipelineConfig`: Dataclass with all configurable parameters (~30 fields)
 
 **Key Parameters**:
+
 - `dpi`: Output resolution (default: 300)
 - `parallel`: Enable parallel processing (default: True)
 - `max_workers`: Number of workers (default: 4)
@@ -47,37 +50,47 @@ flowchart TD
 - `header_ratio`: Header zone height ratio
 
 **Methods**:
+
 - `validate()`: Returns list of validation errors
 
 ### global_config.py
+
 **Purpose**: Load global defaults from TOML
 
 **Key Classes**:
+
 - `GlobalConfig`: Input/output directories, OCR URL, workers
 
 **Usage**:
+
 ```python
 config = load_global_config(Path("config/defaults.toml"))
 ```
 
 ### mission_config.py
+
 **Purpose**: Load mission-specific settings from TOML
 
 **Key Classes**:
+
 - `MissionConfig`: Page offset, file name matching
 
 **Usage**:
+
 ```python
 config = load_mission_config(Path("config"), "AS11_TEC.PDF")
 ```
 
 ### page_extractor.py
+
 **Purpose**: Extract pages from PDF without loading entire document
 
 **Key Classes**:
+
 - `PageExtractor`: Main extraction class
 
 **Key Methods**:
+
 - `extract_page_image(page_num)`: Get page as numpy array (BGR)
 - `extract_page_pdf(page_num, path)`: Extract single page PDF
 - `iter_pages(start, end)`: Lazy page iterator
@@ -86,13 +99,16 @@ config = load_mission_config(Path("config"), "AS11_TEC.PDF")
 **Thread Safety**: Yes (each call opens/closes PDF)
 
 ### image_processor.py
+
 **Purpose**: Image enhancement and normalization
 
 **Key Classes**:
+
 - `ImageProcessor`: Main processing class
 - `ProcessingResult`: Result with image and metadata
 
 **Processing Steps**:
+
 1. Grayscale conversion
 2. Deskew (rotation correction)
 3. Size normalization (Letter size @ 300 DPI)
@@ -101,15 +117,17 @@ config = load_mission_config(Path("config"), "AS11_TEC.PDF")
 6. Spot cleaning (remove small artifacts)
 7. Unsharp mask sharpening
 
-
 ### utils/output_generator.py
+
 **Purpose**: Generate output files for each page
 
 **Key Classes**:
+
 - `PageOutput`: Paths to generated files
 - `OutputGenerator`: Main generator class
 
 **Outputs per page**:
+
 - `Page_NNN/<PDF_STEM>_page_NNNN.json`: Structured transcript
 - `Page_NNN/assets/*_raw.pdf`: Single page extracted from source
 - `Page_NNN/assets/*_enhanced.png`: Processed grayscale image
@@ -117,33 +135,41 @@ config = load_mission_config(Path("config"), "AS11_TEC.PDF")
 - No block overlay images are generated
 
 ### ocr_client.py
+
 **Purpose**: Send images to LM Studio for OCR
 
 **Key Classes**:
+
 - `LMStudioOCRClient`: OpenAI-compatible API client
 - `OCRError`: Base exception
 - `OCRConnectionError`: Connection failures
 - `OCRResponseError`: Invalid responses
 
 **Features**:
+
 - JPEG payload optimization (quality 95)
 - OpenAI-compatible image_url format
 - Configurable timeout (default: 120s)
 - No AI post-processing stage; parsing uses heuristics and lexicon correction.
 
 ### ocr_parser.py
-**Purpose**: Parse OCR text into structured blocks and apply intelligent corrections
+
+**Purpose**: Parse OCR text into structured blocks and apply intelligent
+corrections
 
 **Key Components**:
+
 - `parse_ocr_text()`: Advanced iterative parser for layout recovery.
 - `TextCorrector`: Lexicon-based spelling and context engine.
 - `TimestampCorrector`: Timecode recovery and chronological validation.
 - `SpeakerCorrector`: Standardizes callers based on mission roster.
- - Location extraction for parenthesized station identifiers.
+- Location extraction for parenthesized station identifiers.
 
-**Post-Processing Details**: See [POST_PROCESSING.md](./POST_PROCESSING.md) for logic and formulas.
+**Post-Processing Details**: See [POST_PROCESSING.md](./POST_PROCESSING.md)
+for logic and formulas.
 
 **Output JSON Structure**:
+
 ```json
 {
   "header": {"page": 42, "tape": "1/2", "is_apollo_title": true},
@@ -157,27 +183,31 @@ config = load_mission_config(Path("config"), "AS11_TEC.PDF")
 ```
 
 ### pipeline.py
+
 **Purpose**: Orchestrate complete processing
 
 **Key Classes**:
+
 - `PageResult`: Single page processing result
 - `PipelineResult`: Full document result with statistics
 - `TranscriptPipeline`: Main orchestrator
 
 **Key Methods**:
+
 - `process_page(page_num)`: Process single page
 - `process_pages(page_numbers)`: Process specific pages
 - `process_range(start, end)`: Process page range
 - `process_all()`: Process entire document
 
 **Features**:
+
 - Sequential and parallel processing
 - Progress callbacks
 - Per-page error handling
 
 ## Data Flow
 
-```
+```text
 PDF File
     │
     ▼ PageExtractor.extract_page_image()
@@ -197,7 +227,7 @@ PageOutput (PNG, PDF files)                Raw OCR text
 
 ## Threading Model
 
-```
+```text
 Main Thread
     │
     ├── ThreadPoolExecutor (max_workers from config)
@@ -211,6 +241,7 @@ Main Thread
 ```
 
 **Thread Safety**:
+
 - PDF extraction: Each worker opens its own file handle
 - OpenCV operations: Thread-safe
 - Output directories: Created atomically with `exist_ok=True`
@@ -226,7 +257,7 @@ Main Thread
 
 ## Configuration Hierarchy
 
-```
+```text
 PipelineConfig defaults (hardcoded in dataclass)
        │
        ▼
@@ -241,7 +272,7 @@ CLI arguments (--pages, --no-ocr, --ocr-url, -v)
 
 ## File Structure
 
-```
+```text
 ocr_transcript_v2/
 ├── main.py                 # CLI entry point
 ├── config/

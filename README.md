@@ -1,27 +1,41 @@
 # NASA Transcript Processing Pipeline
 
-Pipeline for processing scanned NASA mission transcripts. Performs page-by-page image enhancement and OCR via LM Studio with an optional AI-assisted classification pass.
+Pipeline for processing scanned NASA mission transcripts. Performs
+page-by-page image enhancement and OCR via LM Studio with an optional
+AI-assisted classification pass.
 
 ## Features
 
-- **Page-by-page processing**: Processes one page at a time without loading entire PDF.
-- **Image enhancement**: Deskew, contrast improvement, noise removal, text sharpening.
-- **Speaker Location Extraction**: Automatically identifies the origin of the speaker (e.g., `TRANQ`, `COLUMBIA`) and separates it from the dialogue.
-- **Global Timestamp Indexing**: Maintains chronological integrity across the entire document, fixing OCR noise and duplicate timecodes.
-- **LM Studio OCR**: High-performance AI OCR (optimized JPEG payload, <5s/page).
+- **Page-by-page processing**: Processes one page at a time without
+  loading entire PDF.
+- **Image enhancement**: Deskew, contrast improvement, noise removal,
+  text sharpening.
+- **Speaker Location Extraction**: Automatically identifies the origin
+  of the speaker (e.g., `TRANQ`, `COLUMBIA`) and separates it from the
+  dialogue.
+- **Global Timestamp Indexing**: Maintains chronological integrity across
+  the entire document, fixing OCR noise and duplicate timecodes.
+- **LM Studio OCR**: High-performance AI OCR (optimized JPEG payload,
+  <5s/page).
 - **OCR Output**: Plain OCR output with optional column-aware mode.
-- **Right-Column OCR Fill**: Optional second OCR pass for the text column to fill missing dialogue.
-- **Header/Tape Reconstruction**: Ignores OCR page/tape lines and recomputes metadata consistently.
-- **Parallel processing**: Multi-threaded image processing with progress tracking.
+- **Right-Column OCR Fill**: Optional second OCR pass for the text column
+  to fill missing dialogue.
+- **Header/Tape Reconstruction**: Ignores OCR page/tape lines and
+  recomputes metadata consistently.
+- **Parallel processing**: Multi-threaded image processing with progress
+  tracking.
 
 ## Getting Started
 
 ### 1. Requirements & Prerequisites
+
 - **Python 3.10+**
-- **LM Studio** (running with a vision model like `qwen3-vl-4b`) for the OCR stage.
+- **LM Studio** (running with a vision model like `qwen3-vl-4b`) for the
+  OCR stage.
 - **Poppler** (optional, for some PDF operations)
 
 ### 2. Installation
+
 ```bash
 # Clone the repository
 git clone <repository-url>
@@ -36,18 +50,24 @@ pip install -r requirements.txt
 ```
 
 ### 3. Preparation
-1.  Place your source PDF files in the `input/` directory.
-2.  Ensure your LM Studio server is running and accessible (default: `http://localhost:1234`).
-3.  Check `config/missions.toml` if your mission requires specific page offsets or column boundary overrides.
+
+1. Place your source PDF files in the `input/` directory.
+2. Ensure your LM Studio server is running and accessible
+   (default: `http://localhost:1234`).
+3. Check `config/missions.toml` if your mission requires specific page
+   offsets or column boundary overrides.
 
 ---
 
 ## Usage Guide
 
-The pipeline is operated via the `main.py` CLI. It currently supports two main commands: `process` and `info`.
+The pipeline is operated via the `main.py` CLI. It currently supports two
+main commands: `process` and `info`.
 
 ### Processing a Transcript
-The `process` command is the main entry point. It extracts pages, enhances images, and performs OCR.
+
+The `process` command is the main entry point. It extracts pages, enhances
+images, and performs OCR.
 
 ```bash
 # Basic processing (looks for the file in the 'input/' folder)
@@ -70,13 +90,14 @@ python main.py process AS11_TEC.PDF --ocr-url http://192.168.1.50:1234
 # Use column-aware prompt (no tags)
 python main.py process AS11_TEC.PDF --ocr-prompt column
 
-
 # Print per-page timing breakdowns
 python main.py process AS11_TEC.PDF --pages 1-5 --timing
 ```
 
 ### Checking PDF Info
+
 To verify the number of pages and basic metadata before processing:
+
 ```bash
 python main.py info AS11_TEC.PDF
 ```
@@ -86,6 +107,7 @@ python main.py info AS11_TEC.PDF
 ## Configuration
 
 **Global defaults**: `config/defaults.toml`
+
 ```toml
 # I/O
 input_dir = "input"
@@ -118,6 +140,7 @@ header_ratio = 0.10
 ```
 
 **Mission configs**: `config/missions.toml`
+
 ```toml
 [mission.11]
 file_name = "AS11_TEC.PDF"
@@ -127,7 +150,8 @@ col1_end = 0.15  # Optional override
 
 ## Prompts
 
-OCR and classification prompts live in `config/prompts.toml`. See `docs/PROMPTS.md` for the full reference.
+OCR and classification prompts live in `config/prompts.toml`.
+See `docs/PROMPTS.md` for the full reference.
 
 ## Requirements
 
@@ -143,14 +167,20 @@ OCR and classification prompts live in `config/prompts.toml`. See `docs/PROMPTS.
 
 - [Architecture](docs/ARCHITECTURE.md) - Module structure and data flow
 - [Pipeline](docs/PIPELINE.md) - Processing stages in detail
-- [Post-Processing](docs/POST_PROCESSING.md) - Text intelligence and structural parsing
-- [Extending](docs/EXTENDING.md) - Adding missions, block types, processing steps
+- [Post-Processing](docs/POST_PROCESSING.md) - Text intelligence and
+  structural parsing
+- [Extending](docs/EXTENDING.md) - Adding missions, block types,
+  processing steps
 
 ## Lexicon & Assets
 
-The project includes a specialized lexicon generated from Apollo 11 ground truth data to improve OCR accuracy.
+The project includes a specialized lexicon generated from Apollo 11 ground
+truth data to improve OCR accuracy.
+
 - **Lexicon**: `assets/lexicon/apollo11_lexicon.json`
-- **Source**: The underlying data (`a11tec.csv`) is derived from the official Apollo 11 Technical Transcript: [Apollo Flight Journal](https://apollojournals.org/alsj/a11/a11transcript_tec.html)
+- **Source**: The underlying data (`a11tec.csv`) is derived from the
+  official Apollo 11 Technical Transcript:
+  [Apollo Flight Journal](https://apollojournals.org/alsj/a11/a11transcript_tec.html)
 
 ## License
 

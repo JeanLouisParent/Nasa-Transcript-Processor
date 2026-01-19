@@ -1,298 +1,203 @@
 # Architecture Documentation
 
-This document describes the architecture of the NASA Transcript Processing
-Pipeline.
+This document describes the high-level architecture, data structures, and module
+responsibilities.
 
-## Overview
+## System Overview
+
+The application is built on a **Pipeline Pattern** separated into two distinct
+stages to optimize for both throughput (Image Processing) and accuracy
+(Intelligence).
 
 ```mermaid
 flowchart TD
-    CLI[main.py CLI] --> ORCH[pipeline.py Orchestrator]
+    CLI[main.py CLI] --> CFG[Config Loader]
+    CLI --> IP[Image Pipeline]
+    CLI --> OP[OCR Loop]
 
-    subgraph Core[Core Engine]
-        ORCH --> CFG[config.py]
+    subgraph "Data Artifacts"
+    CFG --> TOML[config/*.toml]
+    IP --> ASSETS[output/.../assets/]
+    OP --> JSON[output/.../Page_NN.json]
+    OP --> IDX[timestamps_index.json]
     end
-
-    subgraph Processors[Vision Stack]
-        EXT[page_extractor.py]
-        IMG[image_processor.py]
-    end
-
-    subgraph Intelligence[OCR and Post-Processing]
-        CLIENT[ocr_client.py]
-        PARSER[ocr_parser.py]
-        CORR[correctors/*.py]
-    end
-
-    ORCH --> Processors
-    ORCH --> Intelligence
-    PARSER --> CORR
-    Intelligence --> OUT[utils/output_generator.py]
-    CLIENT --> PARSER
 ```
 
-## Module Responsibilities
+## Data Structures
 
-### config.py
+### 1. PageResult (Internal)
 
-**Purpose**: Centralized configuration management
-
-**Key Classes**:
-
-- `PipelineConfig`: Dataclass with all configurable parameters (~30 fields)
-
-**Key Parameters**:
-
-- `dpi`: Output resolution (default: 300)
-- `parallel`: Enable parallel processing (default: True)
-- `max_workers`: Number of workers (default: 4)
-- `col1_end`, `col2_end`: Column boundary ratios
-- `header_ratio`: Header zone height ratio
-
-**Methods**:
-
-- `validate()`: Returns list of validation errors
-
-### global_config.py
-
-**Purpose**: Load global defaults from TOML
-
-**Key Classes**:
-
-- `GlobalConfig`: Input/output directories, OCR URL, workers
-
-**Usage**:
+Used to pass state between the Image Pipeline and the CLI.
 
 ```python
-config = load_global_config(Path("config/defaults.toml"))
+@dataclass
+class PageResult:
+    page_num: int
+    processing: ProcessingResult | None  # Image stats (skew angle, etc)
+    output: PageOutput | None            # Paths to generated files
+    success: bool                        # Status flag
+    error: str | None                    # Error message
+    # Performance Metrics
+    extract_s: float | None
+    process_s: float | None
+    output_s: float | None
 ```
 
-### mission_config.py
+### 2. Output JSON Schema
 
-**Purpose**: Load mission-specific settings from TOML
-
-**Key Classes**:
-
-- `MissionConfig`: Page offset, file name matching
-
-**Usage**:
-
-```python
-config = load_mission_config(Path("config"), "AS11_TEC.PDF")
-```
-
-### page_extractor.py
-
-**Purpose**: Extract pages from PDF without loading entire document
-
-**Key Classes**:
-
-- `PageExtractor`: Main extraction class
-
-**Key Methods**:
-
-- `extract_page_image(page_num)`: Get page as numpy array (BGR)
-- `extract_page_pdf(page_num, path)`: Extract single page PDF
-- `iter_pages(start, end)`: Lazy page iterator
-- `get_page_info(page_num)`: Get page metadata
-
-**Thread Safety**: Yes (each call opens/closes PDF)
-
-### image_processor.py
-
-**Purpose**: Image enhancement and normalization
-
-**Key Classes**:
-
-- `ImageProcessor`: Main processing class
-- `ProcessingResult`: Result with image and metadata
-
-**Processing Steps**:
-
-1. Grayscale conversion
-2. Deskew (rotation correction)
-3. Size normalization (Letter size @ 300 DPI)
-4. CLAHE contrast enhancement
-5. Bilateral noise removal
-6. Spot cleaning (remove small artifacts)
-7. Unsharp mask sharpening
-
-### utils/output_generator.py
-
-**Purpose**: Generate output files for each page
-
-**Key Classes**:
-
-- `PageOutput`: Paths to generated files
-- `OutputGenerator`: Main generator class
-
-**Outputs per page**:
-
-- `Page_NNN/<PDF_STEM>_page_NNNN.json`: Structured transcript
-- `Page_NNN/assets/*_raw.pdf`: Single page extracted from source
-- `Page_NNN/assets/*_enhanced.png`: Processed grayscale image
-- `Page_NNN/ocr/*_ocr_*.txt`: OCR artifacts (raw)
-- No block overlay images are generated
-
-### ocr_client.py
-
-**Purpose**: Send images to LM Studio for OCR
-
-**Key Classes**:
-
-- `LMStudioOCRClient`: OpenAI-compatible API client
-- `OCRError`: Base exception
-- `OCRConnectionError`: Connection failures
-- `OCRResponseError`: Invalid responses
-
-**Features**:
-
-- JPEG payload optimization (quality 95)
-- OpenAI-compatible image_url format
-- Configurable timeout (default: 120s)
-- No AI post-processing stage; parsing uses heuristics and lexicon correction.
-
-### ocr_parser.py
-
-**Purpose**: Parse OCR text into structured blocks and apply intelligent
-corrections
-
-**Key Components**:
-
-- `parse_ocr_text()`: Advanced iterative parser for layout recovery.
-- `TextCorrector`: Lexicon-based spelling and context engine.
-- `TimestampCorrector`: Timecode recovery and chronological validation.
-- `SpeakerCorrector`: Standardizes callers based on mission roster.
-- Location extraction for parenthesized station identifiers.
-
-**Post-Processing Details**: See [POST_PROCESSING.md](./POST_PROCESSING.md)
-for logic and formulas.
-
-**Output JSON Structure**:
+The final structure written to `output/<mission>/Page_NNN/Page_NNN.json`.
 
 ```json
 {
-  "header": {"page": 42, "tape": "1/2", "is_apollo_title": true},
+  "header": {
+    "page": 42,              // Integer: Logical page number
+    "tape": "1/2",           // String: Tape/Reel identifier (calculated)
+    "is_apollo_title": true  // Boolean: Detected title page
+  },
   "blocks": [
-    {"type": "comm", "timestamp": "00 00 00 00", "speaker": "CDR", "text": "..."},
-    {"type": "continuation", "text": "..."},
-    {"type": "annotation", "text": "..."},
-    {"type": "meta", "text": "END OF TAPE"}
+    {
+      "type": "comm",        // Enum: "comm", "text", "meta", "header", "footer"
+      "timestamp": "04 12 33 51",
+      "speaker": "CDR",
+      "location": "TRANQ",   // Optional: Station identifier
+      "text": "Houston, Roger.",
+      "timestamp_correction": "inferred_tens" // Optional: Debug flag
+    },
+    {
+      "type": "continuation",
+      "text": "We copy you down.",
+      "continuation_from_prev": true // Merged from previous page
+    }
   ]
 }
 ```
 
-### pipeline.py
+## Output Directory Structure
 
-**Purpose**: Orchestrate complete processing
-
-**Key Classes**:
-
-- `PageResult`: Single page processing result
-- `PipelineResult`: Full document result with statistics
-- `TranscriptPipeline`: Main orchestrator
-
-**Key Methods**:
-
-- `process_page(page_num)`: Process single page
-- `process_pages(page_numbers)`: Process specific pages
-- `process_range(start, end)`: Process page range
-- `process_all()`: Process entire document
-
-**Features**:
-
-- Sequential and parallel processing
-- Progress callbacks
-- Per-page error handling
-
-## Data Flow
+The pipeline generates a structured output directory for each mission.
 
 ```text
-PDF File
-    │
-    ▼ PageExtractor.extract_page_image()
-numpy.ndarray (BGR, 300 DPI)
-    │
-    ▼ ImageProcessor.process()
-ProcessingResult (grayscale, normalized)
-    │
-    ├──────────────────────────────────────┐
-    │                                      │
-    ▼ OutputGenerator.generate()           ▼ LMStudioOCRClient.ocr_image()
-PageOutput (PNG, PDF files)                Raw OCR text
-                                           ▼ correct_image_text() (optional)
-                                           ▼ parse_ocr_text() + build_page_json()
-                                           JSON file
+output/
+└── AS11_TEC/                       # Mission Stem Name
+    ├── timestamps_index.json       # Global Index (Chronological continuity)
+    ├── Page_001/                   # 1-based Page Directory
+    │   ├── AS11_TEC_page_0001.json # FINAL structured transcript
+    │   ├── assets/
+    │   │   ├── *_raw.pdf           # Single page extracted from source
+    │   │   └── *_enhanced.png      # Processed image sent to OCR
+    │   └── ocr/
+    │       ├── *_ocr_raw.txt       # Raw output from Primary OCR pass
+    │       └── *_ocr_textcol.txt   # Raw output from Right-Column pass
+    ├── Page_002/
+    │   └── ...
+    └── ...
 ```
 
-## Threading Model
+### File Details
 
-```text
-Main Thread
-    │
-    ├── ThreadPoolExecutor (max_workers from config)
-    │       │
-    │       ├── Worker 1: process_page(0)
-    │       ├── Worker 2: process_page(1)
-    │       ├── Worker 3: process_page(2)
-    │       └── Worker N: process_page(N)
-    │
-    └── tqdm progress bar (sequential OCR follows)
-```
+- **`timestamps_index.json`**:
+  - **Role**: Critical for the sequential processing stage.
+  - **Content**: A mapping of `{ page_num: [list_of_timestamps] }`.
+  - **Usage**: Allows the parser to look back at previous pages (even across
+    restart sessions) to correct "50->10" OCR errors and maintain monotonic
+    time.
 
-**Thread Safety**:
+- **`assets/`**:
+  - **Role**: Debugging and visual verification.
+  - **Usage**: If OCR fails, check `*_enhanced.png` to see if the image
+    processing (deskew, noise removal) degraded the text quality.
 
-- PDF extraction: Each worker opens its own file handle
-- OpenCV operations: Thread-safe
-- Output directories: Created atomically with `exist_ok=True`
-- OCR: Sequential (not parallelized)
+- **`ocr/`**:
+  - **Role**: Transparency and prompt engineering.
+  - **Usage**: Contains the raw, hallucinated string returned by the VLM
+    before any parsing logic runs. Useful for tweaking prompts.
 
-## Error Handling
+## Module Responsibilities
 
-- **Per-page isolation**: Errors don't stop the pipeline
-- **Logging**: Uses loguru at WARNING level (DEBUG with -v)
-- **Result tracking**: `PageResult.success` and `.error` fields
-- **Exit codes**: Non-zero if any pages fail
-- **OCR errors**: Caught and written to JSON with error field
+### Core (`src.core`)
+
+- **`pipeline.py`**: Orchestrates the *Image Processing* stage. Manages the
+  `ThreadPoolExecutor`.
+- **`config.py`**: Defines `PipelineConfig` dataclass and validation logic.
+
+### Processors (`src.processors`)
+
+- **`page_extractor.py`**: Wraps `pymupdf`. Handles PDF locking and
+  rasterization.
+- **`image_processor.py`**: Wraps `opencv`. Pure functional image
+  transformations (State: None).
+
+### OCR (`src.ocr`)
+
+- **`ocr_client.py`**: Wraps HTTP requests to LM Studio. Handles Base64
+  encoding and payload structuring.
+- **`ocr_parser.py`**: The "brain" of the text processing. Contains the State
+  Machine for block parsing.
+
+### Correctors (`src.correctors`)
+
+- **`timestamp_corrector.py`**: Implements the monotonic time logic.
+- **`text_corrector.py`**: Implements the Levenshtein/Gestalt scoring
+  algorithm.
+- **`timestamp_index.py`**: Manages the persistent JSON index for cross-page
+  time continuity.
+
+### Utils (`src.utils`)
+
+- **`output_generator.py`**: Manages filesystem paths and atomic writes.
+- **`console.py`**: Manages the Rich UI (Progress bars, Live tables).
+
+## Error Handling Strategy
+
+1. **Image Stage (Parallel)**:
+   - Exceptions are caught per-page in `pipeline.process_page`.
+   - Failed pages return `success=False` in `PageResult`.
+   - The pipeline continues; failures are reported in the final summary.
+
+2. **OCR Stage (Sequential)**:
+   - Network errors (`OCRConnectionError`) log a warning and increment a
+     failure counter.
+   - Parsing errors (`ValueError`) are caught, logged, and the raw text is
+     dumped for debugging.
+   - The loop continues to the next page (best-effort).
 
 ## Configuration Hierarchy
 
-```text
-PipelineConfig defaults (hardcoded in dataclass)
-       │
-       ▼
-GlobalConfig (config/defaults.toml)
-       │
-       ▼
-MissionConfig (config/missions.toml)
-       │
-       ▼
-CLI arguments (--pages, --no-ocr, --ocr-url, -v)
-```
+Configuration is applied in layers, with later layers overriding earlier ones:
 
-## File Structure
+1. **Hardcoded Defaults**: In `PipelineConfig` class definition.
+2. **Global Config**: `config/defaults.toml`.
+3. **Mission Config**: `config/missions.toml` (Matches by filename).
+4. **CLI Arguments**: Flags like `--no-ocr`, `--pages`.
+
+## Project File Structure
 
 ```text
 ocr_transcript_v2/
-├── main.py                 # CLI entry point
+├── main.py                     # Entry point (CLI & Intelligence Orchestrator)
 ├── config/
-│   ├── defaults.toml       # Global defaults
-│   └── missions.toml       # Mission configs (consolidated)
+│   ├── defaults.toml           # Global settings
+│   ├── missions.toml           # Mission-specific overrides
+│   └── prompts.toml            # OCR & Classification prompts
 ├── src/
-│   ├── __init__.py
-│   ├── config.py           # PipelineConfig
-│   ├── global_config.py    # GlobalConfig loader
-│   ├── mission_config.py   # MissionConfig loader
-│   ├── page_extractor.py   # PDF → numpy
-│   ├── image_processor.py  # Image enhancement
-│   ├── output_generator.py # File generation
-│   ├── ocr_client.py       # LM Studio client
-│   ├── ocr_parser.py       # OCR text parsing
-│   └── pipeline.py         # Orchestrator
-├── docs/
-│   ├── ARCHITECTURE.md     # This file
-│   ├── PIPELINE.md         # Stage details
-│   └── EXTENDING.md        # Extension guide
-├── input/                  # Default PDF location
-└── output/                 # Generated files
+│   ├── core/
+│   │   ├── config.py           # Config schema
+│   │   └── pipeline.py         # Image Pipeline Orchestrator
+│   ├── processors/
+│   │   ├── page_extractor.py   # PDF Rendering
+│   │   └── image_processor.py  # OpenCV enhancements
+│   ├── ocr/
+│   │   ├── ocr_client.py       # LM Studio Client
+│   │   └── ocr_parser.py       # Text Parsing Engine
+│   ├── correctors/
+│   │   ├── speaker_corrector.py
+│   │   ├── text_corrector.py
+│   │   ├── timestamp_corrector.py
+│   │   └── timestamp_index.py
+│   └── utils/
+│       ├── output_generator.py # File I/O
+│       └── console.py          # Terminal UI
+├── docs/                       # Project Documentation
+├── input/                      # Input PDFs
+└── output/                     # Generated Artifacts
 ```

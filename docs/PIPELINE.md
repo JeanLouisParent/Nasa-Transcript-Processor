@@ -1,257 +1,199 @@
 # Pipeline Documentation
 
-This document describes each stage of the processing pipeline.
+This document provides a technical deep-dive into the processing stages.
 
 ## Overview
 
+<!-- markdownlint-disable MD013 -->
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {
-  'primaryColor': '#0B3D91',
-  'primaryTextColor': '#fff',
-  'primaryBorderColor': '#FC3D21',
-  'lineColor': '#8BA1B4',
-  'secondaryColor': '#8BA1B4',
-  'tertiaryColor': '#fff'
-}}}%%
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#0B3D91', 'secondaryColor': '#8BA1B4', 'tertiaryColor': '#fff' }}}%%
 flowchart LR
-    A[Extraction] --> B[Processing]
-    B --> C[Generation]
-    C --> D[OCR & Intelligence]
+    subgraph "Parallel Image Stage"
+    RAW[PDF Page] --> EXT[Extraction]
+    EXT --> IMG[Image Processing]
+    IMG --> OUT[Asset Generation]
+    end
 
-    style A fill:#0B3D91,stroke:#FC3D21,color:#fff
-    style B fill:#0B3D91,stroke:#FC3D21,color:#fff
-    style C fill:#0B3D91,stroke:#FC3D21,color:#fff
-    style D fill:#FC3D21,stroke:#0B3D91,color:#fff
+    subgraph "Sequential Intelligence Stage"
+    OUT -.-> OCR[OCR Client]
+    OCR --> PARSE[Parser State Machine]
+    PARSE --> CORR[Semantic Correction]
+    CORR --> JSON[JSON Output]
+    end
 ```
+<!-- markdownlint-enable MD013 -->
 
 ---
 
 ## Stage 1: Page Extraction
 
-**Module**: `page_extractor.py`
+**Module**: `src.processors.page_extractor`
 
-Extracts individual pages from PDF as high-resolution images.
+**Class**: `PageExtractor`
 
-**Operations**:
+Thread-safe extraction of raster images from the source PDF.
 
-1. Open PDF with pymupdf
-2. Load specific page by index
-3. Render at target DPI (default: 300)
-4. Convert to numpy array (BGR format)
-5. Optionally extract single-page PDF
-
-**Output**:
-
-- `numpy.ndarray`: BGR image at target resolution
-- `*_raw.pdf`: Single-page PDF file
-
-**Parameters**:
-
-| Parameter | Default | Description              |
-| --------- | ------- | ------------------------ |
-| `dpi`     | 300     | Output resolution (72-600) |
+1. **Locking**: Uses `threading.Lock()` to serialize access to the
+   `pymupdf.Document` object (MuPDF is not inherently thread-safe for
+   parallel rendering).
+2. **Rendering**: Calls `page.get_pixmap(dpi=300)`.
+3. **Conversion**: Converts the `pixmap` buffer to a `numpy` array
+   (Height × Width × 3).
+4. **Color Space**: Converts RGB to BGR (standard OpenCV format).
 
 ---
 
 ## Stage 2: Image Processing
 
-**Module**: `image_processor.py`
+**Module**: `src.processors.image_processor`
 
-Enhances scanned images for better OCR.
+**Class**: `ImageProcessor`
 
-### 2.1 Grayscale Conversion
+A deterministic pipeline of geometric and photometric transformations.
 
-Convert BGR to grayscale for consistent processing.
+### 2.1 Pre-processing
 
-### 2.2 Deskew
+- **Grayscale**: `cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)`.
+- **Inversion** (Internal): Many subsequent steps use an inverted binary map
+  (text = white, background = black).
 
-Detect and correct page rotation using Hough line detection.
+### 2.2 Deskew Algorithm
 
-**Algorithm**:
+Detects and corrects page rotation (skew) to ensure horizontal text lines.
 
-1. Create binary image (Otsu threshold)
-2. Detect edges (Canny)
-3. Find lines (Probabilistic Hough Transform)
-4. Calculate median angle of near-horizontal lines
-5. Rotate if angle exceeds threshold
-
-**Parameters**:
-
-| Parameter                | Default | Description               |
-| ------------------------ | ------- | ------------------------- |
-| `deskew_angle_threshold` | 0.5 deg | Minimum angle to correct  |
-| `deskew_max_angle`       | 10 deg  | Maximum expected skew     |
+1. **Binarization**: Otsu's thresholding (`THRESH_BINARY_INV + THRESH_OTSU`)
+   to create a text mask.
+2. **Line Fusion**: Applies a **50x1 Morphological Dilate**. This fuses
+   individual characters into solid "line blobs".
+3. **Contour Detection**: Finds external contours of these blobs.
+4. **Filtering**: Keeps contours where:
+   - `Area > 500 px`
+   - `Aspect Ratio > 5` (elongated shapes only)
+5. **Angle Calculation**: Uses `cv2.minAreaRect()` on valid contours.
+   Normalizes angles to range `[-45, 45]`.
+6. **Voting**: Calculates the `median` of all detected line angles.
+7. **Fallback**: If < 5 text lines are found, runs `cv2.HoughLinesP` on
+   Canny edges.
+8. **Correction**:
+   - **Threshold**: Rotates only if `abs(angle) > 0.1` degrees.
+   - **Transformation**: `cv2.warpAffine` using `INTER_LANCZOS4`
+     interpolation (preserves sharpness).
 
 ### 2.3 Size Normalization
 
-Standardize page dimensions to Letter size at 300 DPI.
+Standardizes the canvas to facilitate consistent OCR.
 
-**Algorithm**:
+1. **Content Detection**: `cv2.threshold(img, 240, 255, THRESH_BINARY_INV)`
+   to find all non-white pixels.
+2. **Bounding Box**: `cv2.boundingRect()` around all content.
+3. **Scaling**:
+   - Target: Letter Size (8.5" x 11") @ 300 DPI = **2550 x 3300 px**.
+   - Margins: **75 px** uniform.
+   - Calculates `scale = min(target_w/bbox_w, target_h/bbox_h)`.
+4. **Resampling**:
+   - Downscaling: `INTER_AREA` (resampling using pixel area relation).
+   - Upscaling: `INTER_LANCZOS4`.
+5. **Centering**: Places the resized content block in the center of a pure
+   white (255) 2550x3300 canvas.
 
-1. Find content bounding box (non-white pixels)
-2. Crop to content
-3. Scale to fit target area (preserve aspect ratio)
-4. Center on canvas with uniform margins
+### 2.4 Photometric Enhancement (`_enhance_light`)
 
-**Parameters**:
+A conservative enhancement chain designed to clean background noise without
+thinning text strokes.
 
-| Parameter       | Default | Description       |
-| --------------- | ------- | ----------------- |
-| `target_width`  | 2550 px | 8.5 inch at 300 DPI |
-| `target_height` | 3300 px | 11 inch at 300 DPI  |
-| `margin_px`     | 75 px   | ~0.25 inch margin   |
-
-### 2.4 CLAHE Contrast Enhancement
-
-Improve local contrast using Contrast Limited Adaptive Histogram
-Equalization.
-
-**Parameters**:
-
-| Parameter          | Default | Description    |
-| ------------------ | ------- | -------------- |
-| `clahe_clip_limit` | 2.0     | Contrast limit |
-| `clahe_grid_size`  | 8       | Tile size      |
-
-### 2.5 Bilateral Noise Removal
-
-Reduce noise while preserving edges.
-
-**Parameters**:
-
-| Parameter               | Default | Description     |
-| ----------------------- | ------- | --------------- |
-| `bilateral_d`           | 9       | Filter diameter |
-| `bilateral_sigma_color` | 75      | Color sigma     |
-| `bilateral_sigma_space` | 75      | Space sigma     |
-
-### 2.6 Spot Cleaning
-
-Remove small artifacts using connected component analysis.
-
-**Algorithm**:
-
-1. Threshold to binary (dark pixels = foreground)
-2. Find connected components
-3. Remove components < 15 px squared or small squares < 50 px squared
-4. Replace with white
-
-### 2.7 Unsharp Mask
-
-Enhance text edges for better readability.
-
-**Parameters**:
-
-| Parameter        | Default | Description         |
-| ---------------- | ------- | ------------------- |
-| `unsharp_amount` | 1.5     | Sharpening strength |
-| `unsharp_sigma`  | 1.0     | Blur sigma          |
+1. **Denoising**: `cv2.medianBlur(ksize=3)`. Effective against
+   salt-and-pepper scan noise.
+2. **Contrast Stretching**:
+   - Calculates **Black Point** ($P_2$) and **White Point** ($P_{98}$)
+     percentiles.
+   - Linear stretch: $Pixel' = (Pixel - P_2) \times \frac{255}{P_{98} - P_2}$
+   - Clips values to [0, 255].
+3. **Background Whitening**: Forces all pixels $> 240$ to $255$. This removes
+   faint paper texture.
+4. **Spot Cleaning**:
+   - Uses `cv2.connectedComponentsWithStats`.
+   - Iterates through all connected black components.
+   - **Removal Criteria**:
+     - `Area <= 15 px` (tiny speckles).
+     - `Area <= 50 px` AND `Aspect Ratio < 2` (small square-ish dots,
+       likely dust).
+   - Replacement: Fills identified noise masks with White (255).
+5. **Gamma Correction**: Applies a Look-Up Table (LUT) with $\gamma=0.92$.
+   - Effect: Slightly darkens mid-tones (text), increasing local contrast
+     against the white background.
 
 ---
 
 ## Stage 3: Output Generation
 
-**Module**: `utils/output_generator.py`
+**Module**: `src.utils.output_generator`
 
-Generates output files for each processed page.
-
-### Files Generated
-
-| File             | Description                 |
-| ---------------- | --------------------------- |
-| `*_raw.pdf`      | Single page from source PDF |
-| `*_enhanced.png` | Processed grayscale image   |
-
-Outputs are organized per page:
-
-- `output/<PDF_STEM>/Page_NNN/` contains the JSON and subfolders
-- `output/<PDF_STEM>/Page_NNN/assets/` stores raw PDF + enhanced image
-- `output/<PDF_STEM>/Page_NNN/ocr/` stores OCR artifacts
+1. **Asset Storage**: Creates `output/<stem>/Page_NNN/assets/`.
+2. **Image Write**: Saves the processed image as PNG.
+   - Uses `cv2.IMWRITE_PNG_COMPRESSION = 6` (Balance of speed/size).
+   - Filename: `*_enhanced.png`.
 
 ---
 
-## Stage 4: OCR (Optional)
+## Stage 4: OCR Strategy
 
-**Modules**: `ocr_client.py`, `ocr_parser.py`
+**Module**: `src.ocr.ocr_client`
 
-Sends enhanced images to LM Studio for text extraction. Optionally runs
-a second AI pass to tag each line using the OCR text plus the page image.
+The pipeline uses a Vision-Language Model (VLM) approach rather than
+traditional Tesseract LSTM.
 
-Prompt text is loaded from `config/prompts.toml` when present.
-See `docs/PROMPTS.md`.
+### 4.1 Payload Optimization
 
-### OCR Client
+To minimize latency and token costs while maintaining accuracy:
 
-Uses OpenAI-compatible API with optimized workflow for speed:
+- **Format**: JPEG.
+- **Quality**: 95 (High quality to preserve faint punctuation).
+- **Base64**: Standard encoding for the OpenAI-compatible API.
 
-1. **Compression**: Encodes image as JPEG (95% quality) to preserve
-   faint text
-2. **Standard Format**: Uses OpenAI `image_url` format for the vision
-   payload
-3. **Validation**: Logs a warning on empty OCR output but does not
-   hard-fail
+### 4.2 Prompting Strategy
 
-**Configuration**:
+Two distinct prompts are used based on the task:
 
-| Parameter  | Default     | Description      |
-| ---------- | ----------- | ---------------- |
-| Model      | qwen3-vl-4b | Vision model     |
-| Timeout    | 120s        | Request timeout  |
-| Max tokens | 4096        | Response limit   |
+1. **Plain Mode (`PLAIN_OCR_PROMPT`)**:
+   - Instructs the model to read left-to-right, ignoring column gaps.
+   - Explicitly forbids "hallucinating" conversational fillers.
+   - Output: Raw text with physical line breaks preserved.
 
-### OCR Parser
+2. **Column Mode (`TEXT_COLUMN_OCR_PROMPT`)**:
+   - Used for the **Right-Column Fill** pass.
+   - Input: A crop of the rightmost 70% of the image.
+   - Instruction: "Extract ONLY the visible text... Do not add timestamps or
+     speakers."
+   - Purpose: Recovers dialogue lost when the primary pass hallucinates a
+     newline early.
 
-Parses plain text into structured blocks using heuristics.
+### 4.3 Validation
 
-**Detection patterns**:
+- The client checks for empty responses.
+- **Error Handling**: Raises `OCRResponseError` on malformed JSON, triggering
+  a retry or failure log depending on context.
 
-- Timestamp: `\d{2} \d{2} \d{2} \d{1,2}`
-- Speaker: `[A-Z][A-Z0-9]{1,6}`
-- Header keywords: GOSS, NET, TAPE, PAGE, APOLLO
+---
 
-### Right-Column OCR Fill
+## Stage 5: Right-Column Fill Logic
 
-When `ocr_text_column_pass = true`, a second OCR pass is run on a
-cropped right-side text column. Missing `comm` text is filled from
-this pass and merged into adjacent lines when the continuation starts
-with punctuation or lowercase.
+If `ocr_text_column_pass = true`, an additional localized OCR pass is
+performed.
 
-### Output Format
+**Note**: This is **NOT** algorithmic column detection. It uses a **hardcoded
+crop** based on the configuration parameter `col2_end`.
 
-**JSON** (`*_page_XXXX.json`):
-
-```json
-{
-  "header": {
-    "page": 42,
-    "tape": "1/2",
-    "is_apollo_title": true
-  },
-  "blocks": [
-    {
-      "type": "comm",
-      "timestamp": "00 00 00 00",
-      "speaker": "CDR",
-      "text": "Roger, Houston."
-    },
-    {
-      "type": "continuation",
-      "text": "We copy.",
-      "continuation_from_prev": true
-    }
-  ]
-}
-```
-
-**Raw text** (`ocr/*_ocr_raw.txt`): Unprocessed OCR output.
-
-**Text column OCR** (`ocr/*_ocr_textcol.txt`): Right-column OCR output
-(if enabled and used).
-
-### Skip OCR
-
-Use `--no-ocr` to skip this stage:
-
-```bash
-python main.py process AS11_TEC.PDF --no-ocr
-```
+1. **Identify Gaps**: Find `comm` blocks where `text` is empty (the primary
+   OCR failed to read the text column).
+2. **Static Crop**: Extract region `x: [width * col2_end -> width]`.
+   - Default `col2_end` is `0.30` (30%).
+   - No histogram analysis or dynamic layout detection is performed.
+3. **OCR**: Run with `TEXT_COLUMN_OCR_PROMPT` ("Extract ONLY visible
+   text...").
+4. **Merge**:
+   - Filter out lines matching `SPEAKER_RE` or `HEADER_RE`.
+   - Zip the remaining text lines into the empty `comm` blocks.
+   - **Smart Stitching**: If a `comm` block ends with text, and the next block
+     is a continuation found via this pass, check if the continuation starts
+     with lowercase/punctuation. If so, merge into the previous block to
+     reform the sentence structure.

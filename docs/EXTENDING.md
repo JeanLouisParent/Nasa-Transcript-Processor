@@ -20,8 +20,8 @@ Create a custom `PipelineConfig` for different scan conditions:
 
 ```python
 from pathlib import Path
-from src.config import PipelineConfig
-from src.pipeline import TranscriptPipeline
+from src.core.config import PipelineConfig
+from src.core.pipeline import TranscriptPipeline
 
 config = PipelineConfig(
     dpi=300,
@@ -39,10 +39,10 @@ pipeline.process_range(0, pipeline.page_count)
 
 ### Common Adjustments
 
-| Parameter          | When to adjust     |
-| ------------------ | ------------------ |
+| Parameter | When to adjust |
+| :--- | :--- |
 | `clahe_clip_limit` | Low contrast scans |
-| `bilateral_d`      | Noisy scans        |
+| `bilateral_d` | Noisy scans |
 
 ---
 
@@ -50,7 +50,7 @@ pipeline.process_range(0, pipeline.page_count)
 
 ### Step 1: Add Config Parameter
 
-In `src/config.py`:
+In `src/core/config.py`:
 
 ```python
 @dataclass
@@ -64,7 +64,7 @@ class PipelineConfig:
 
 ### Step 2: Implement Step
 
-In `src/image_processor.py`:
+In `src/processors/image_processor.py`:
 
 ```python
 def _adaptive_binarize(self, image: np.ndarray) -> np.ndarray:
@@ -93,7 +93,7 @@ if self.config.adaptive_binarize:
 
 ### Step 1: Update Config
 
-In `src/config.py`, the `output_format` field already supports:
+In `src/core/config.py`, the `output_format` field already supports:
 
 - `png` (default, lossless)
 - `tiff` (lossless)
@@ -101,7 +101,7 @@ In `src/config.py`, the `output_format` field already supports:
 
 ### Step 2: Add New Format
 
-In `src/output_generator.py`:
+In `src/utils/output_generator.py`:
 
 ```python
 def _save_image(self, image: np.ndarray, path: Path) -> None:
@@ -145,21 +145,27 @@ client = LMStudioOCRClient(
 )
 ```
 
-### Optional Classification Pass
+### Right-Column OCR Fill
 
-Enable the second-pass classifier (OCR text + image) via config.
+Enable the second-pass OCR (text column crop) via config.
 
-The classifier output is strictly validated for line count/order. If
-invalid, the parser falls back to the raw OCR text.
+In `config/defaults.toml`:
+
+```toml
+ocr_text_column_pass = true
+```
+
+This triggers `TEXT_COLUMN_OCR_PROMPT` on a cropped right-hand section of the
+page to fill missing dialogue.
 
 ### Prompt Customization
 
-Edit `config/prompts.toml` to override the OCR and classification
-prompts without changing code.
+Edit `config/prompts.toml` to override the OCR and classification prompts
+without changing code.
 
 ### Custom Parser
 
-Create your own parser in `src/ocr_parser.py`:
+Create your own parser in `src/ocr/ocr_parser.py`:
 
 ```python
 def parse_custom_format(text: str, page_num: int) -> list[dict]:
@@ -183,8 +189,8 @@ def parse_custom_format(text: str, page_num: int) -> list[dict]:
 ```python
 # tests/test_pipeline.py
 from pathlib import Path
-from src.config import PipelineConfig
-from src.pipeline import TranscriptPipeline
+from src.core.config import PipelineConfig
+from src.core.pipeline import TranscriptPipeline
 
 def test_process_page():
     config = PipelineConfig(dpi=150)  # Lower DPI for speed
@@ -203,19 +209,19 @@ def test_process_page():
 
 ```python
 from pathlib import Path
-from src.config import PipelineConfig
-from src.pipeline import TranscriptPipeline
+from src.core.config import PipelineConfig
+from src.core.pipeline import TranscriptPipeline
 from src.ocr.ocr_client import LMStudioOCRClient
-from src.ocr_parser import parse_ocr_text, build_page_json
+from src.ocr.ocr_parser import parse_ocr_text, build_page_json
 
-# Process images
+# Process images (Image Pipeline)
 config = PipelineConfig(parallel=True, max_workers=8)
 pipeline = TranscriptPipeline(Path("doc.pdf"), Path("output"), config)
 result = pipeline.process_all()
 
 print(f"Processed: {result.successful_pages}/{result.total_pages}")
 
-# Run OCR separately
+# Run OCR separately (Intelligence Stage)
 client = LMStudioOCRClient(
     base_url="http://localhost:1234",
     model="qwen3-vl-4b"
@@ -231,7 +237,6 @@ for page_result in result.page_results:
         )
 
         # OCR
-        # Optional classification pass (text + image)
         text = client.ocr_image(img)
         rows = parse_ocr_text(text, page_result.page_num)
         lines = [ln.strip() for ln in text.splitlines() if ln.strip()]

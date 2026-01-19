@@ -8,15 +8,14 @@ AI-assisted classification pass.
 
 - **Page-by-page processing**: Processes one page at a time without
   loading entire PDF.
-- **Image enhancement**: Deskew, contrast improvement, noise removal,
-  text sharpening.
+- **Image enhancement**: Deskew, normalization, spot cleaning, and
+  contrast improvement.
 - **Speaker Location Extraction**: Automatically identifies the origin
   of the speaker (e.g., `TRANQ`, `COLUMBIA`) and separates it from the
   dialogue.
 - **Global Timestamp Indexing**: Maintains chronological integrity across
   the entire document, fixing OCR noise and duplicate timecodes.
-- **LM Studio OCR**: High-performance AI OCR (optimized JPEG payload,
-  <5s/page).
+- **LM Studio OCR**: High-performance AI OCR integration (OpenAI-compatible).
 - **OCR Output**: Plain OCR output with optional column-aware mode.
 - **Right-Column OCR Fill**: Optional second OCR pass for the text column
   to fill missing dialogue.
@@ -52,22 +51,23 @@ pip install -r requirements.txt
 ### 3. Preparation
 
 1. Place your source PDF files in the `input/` directory.
+
 2. Ensure your LM Studio server is running and accessible
    (default: `http://localhost:1234`).
+
 3. Check `config/missions.toml` if your mission requires specific page
-   offsets or column boundary overrides.
+   offsets.
 
 ---
 
 ## Usage Guide
 
-The pipeline is operated via the `main.py` CLI. It currently supports two
-main commands: `process` and `info`.
+The pipeline is operated via the `main.py` CLI.
 
 ### Processing a Transcript
 
-The `process` command is the main entry point. It extracts pages, enhances
-images, and performs OCR.
+The `process` command is the main entry point. It first runs the **Image
+Pipeline** (extraction & enhancement) and then triggers the **OCR Loop**.
 
 ```bash
 # Basic processing (looks for the file in the 'input/' folder)
@@ -78,7 +78,7 @@ python main.py process AS11_TEC.PDF
 python main.py process AS11_TEC.PDF --pages 1-50
 python main.py process AS11_TEC.PDF --pages 10,12,14-16
 
-# Skip OCR (useful for testing image enhancement)
+# Skip OCR (Image processing only)
 python main.py process AS11_TEC.PDF --no-ocr
 
 # Clean previous output before starting
@@ -128,13 +128,12 @@ workers = 4
 timing = true
 
 # Image Enhancement
-clahe_clip_limit = 2.0
-bilateral_d = 9
-unsharp_amount = 1.5
+clahe_clip_limit = 2.0  # (Legacy param, kept for compatibility)
+bilateral_d = 9         # (Legacy param, kept for compatibility)
 deskew_angle_threshold = 0.5
 
-# Layout Detection
-col1_end = 0.15
+# Right-Column Crop Settings
+# Used ONLY for the optional 'ocr_text_column_pass' to isolate the text column
 col2_end = 0.30
 header_ratio = 0.10
 ```
@@ -145,7 +144,6 @@ header_ratio = 0.10
 [mission.11]
 file_name = "AS11_TEC.PDF"
 page_offset = -2
-col1_end = 0.15  # Optional override
 ```
 
 ## Prompts
@@ -153,34 +151,14 @@ col1_end = 0.15  # Optional override
 OCR and classification prompts live in `config/prompts.toml`.
 See `docs/PROMPTS.md` for the full reference.
 
-## Requirements
-
-- Python 3.10+
-- pymupdf (PDF processing)
-- opencv-python (image processing)
-- numpy (array operations)
-- click (CLI)
-- tqdm (progress bars)
-- loguru (logging)
-
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md) - Module structure and data flow
-- [Pipeline](docs/PIPELINE.md) - Processing stages in detail
+- [Architecture](docs/ARCHITECTURE.md) - System design and data flow.
+- [Pipeline](docs/PIPELINE.md) - Detailed breakdown of processing stages.
 - [Post-Processing](docs/POST_PROCESSING.md) - Text intelligence and
-  structural parsing
+  structural parsing.
 - [Extending](docs/EXTENDING.md) - Adding missions, block types,
-  processing steps
-
-## Lexicon & Assets
-
-The project includes a specialized lexicon generated from Apollo 11 ground
-truth data to improve OCR accuracy.
-
-- **Lexicon**: `assets/lexicon/apollo11_lexicon.json`
-- **Source**: The underlying data (`a11tec.csv`) is derived from the
-  official Apollo 11 Technical Transcript:
-  [Apollo Flight Journal](https://apollojournals.org/alsj/a11/a11transcript_tec.html)
+  processing steps.
 
 ## License
 

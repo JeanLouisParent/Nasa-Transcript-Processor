@@ -84,9 +84,13 @@ output/
     │   ├── AS11_TEC_page_0001.json # FINAL structured transcript
     │   ├── assets/
     │   │   ├── *_raw.pdf           # Single page extracted from source
-    │   │   └── *_enhanced.png      # Processed image sent to OCR
+    │   │   ├── *_enhanced.png      # Processed image sent to OCR
+    │   │   ├── *_raw.png           # Direct PDF render (no enhancement)
+    │   │   └── *_faint.png         # Contrast-boosted fallback render
     │   └── ocr/
     │       ├── *_ocr_raw.txt       # Raw output from Primary OCR pass
+    │       ├── *_ocr_raw_fallback.txt   # Raw output from Raw OCR pass
+    │       ├── *_ocr_faint_fallback.txt # Raw output from Faint OCR pass
     │       └── *_ocr_textcol.txt   # Raw output from Right-Column pass
     ├── Page_002/
     │   └── ...
@@ -105,7 +109,8 @@ output/
 - **`assets/`**:
   - **Role**: Debugging and visual verification.
   - **Usage**: If OCR fails, check `*_enhanced.png` to see if the image
-    processing (deskew, noise removal) degraded the text quality.
+    processing (deskew, noise removal) degraded the text quality. Compare
+    with `*_raw.png` and `*_faint.png` for fallback visibility.
 
 - **`ocr/`**:
   - **Role**: Transparency and prompt engineering.

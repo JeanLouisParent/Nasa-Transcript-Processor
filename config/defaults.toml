@@ -11,6 +11,8 @@ ocr_prompt = "plain" # "plain" or "column"
 ocr_timeout = 120
 ocr_max_tokens = 4096
 ocr_text_column_pass = true
+ocr_dual_pass = true
+ocr_faint_pass = true
 
 # Processing Settings
 dpi = 300

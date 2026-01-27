@@ -81,7 +81,7 @@ start is detected.
 | `TIMESTAMP_PREFIX_RE` | `^([\dOI'()]{2}\s+...)\b` | Start of line |
 | `SPEAKER_LINE_RE` | `^[A-Z0-9]{1,8}(/[A-Z0-9]+)?...$` | `CDR`, `CMP` |
 | `LOCATION_PAREN_RE` | `^\(([A-Z0-9\s]+)\)$` | `(TRANQ)` |
-| `HEADER_PAGE_RE` | `\bPAGE\s*(\d+)\b` | `Page 42` |
+| `HEADER_PAGE_RE` | `\b(?:PAGE|PLAY|LAY)\s*(\d+)\b` | `Page 42`, `Play 473`, `Lay 473` |
 
 #### Core States & Logic
 
@@ -118,6 +118,8 @@ start is detected.
 
 5. **Meta/Footer Detection**:
    - `***` lines: Converted to canonical "Three asterisks..." footer.
+   - Page/Tape headers (`Page`, `Play`, `Lay`, `Tape`) are ignored when they
+     appear as standalone header-only lines.
    - `END OF TAPE`: Marked as `meta_type="end_of_tape"`, triggers Tape
      counter increment.
    - `REST PERIOD`, `LOS`, `AOS`: Marked as `meta` type.

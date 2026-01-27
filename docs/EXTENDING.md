@@ -158,6 +158,20 @@ ocr_text_column_pass = true
 This triggers `TEXT_COLUMN_OCR_PROMPT` on a cropped right-hand section of the
 page to fill missing dialogue.
 
+### Dual OCR Fallbacks (Raw + Faint)
+
+Enable multi-pass OCR to recover faded lines that the enhanced image misses:
+
+```toml
+ocr_dual_pass = true   # OCR on raw PDF render
+ocr_faint_pass = true  # OCR on faint-text enhanced render
+```
+
+Behavior:
+- The fallback passes are merged line-by-line with the primary output.
+- If the fallback text is longer and clearly different, it can be inserted
+  as a continuation after the matching timestamp line.
+
 ### Prompt Customization
 
 Edit `config/prompts.toml` to override the OCR and classification prompts

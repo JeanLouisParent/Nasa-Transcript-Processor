@@ -10,6 +10,7 @@ Usage:
 """
 
 import json
+import re
 import shutil
 import sys
 import time
@@ -17,6 +18,8 @@ from pathlib import Path
 
 import click
 import cv2
+import fitz  # pymupdf
+import numpy as np
 from loguru import logger
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -47,6 +50,191 @@ from src.utils.console import console as rich_console
 
 # Initialize console manager
 console = PipelineConsole()
+
+def render_pdf_page_image(pdf_path: Path, dpi: int) -> np.ndarray:
+    """Render the first page of a single-page PDF to a BGR image."""
+    with fitz.open(pdf_path) as doc:
+        page = doc.load_page(0)
+        zoom = dpi / 72.0
+        matrix = fitz.Matrix(zoom, zoom)
+        pixmap = page.get_pixmap(matrix=matrix, alpha=False)
+        img_data = np.frombuffer(pixmap.samples, dtype=np.uint8)
+        img = img_data.reshape(pixmap.height, pixmap.width, 3)
+        return img[:, :, ::-1].copy()
+
+
+def enhance_for_faint_text(image: np.ndarray) -> np.ndarray:
+    """Boost faint text visibility with gentle local contrast and sharpening."""
+    if len(image.shape) == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = image.copy()
+    p_low, p_high = np.percentile(gray, (2, 98))
+    if p_high > p_low:
+        stretched = np.clip((gray - p_low) * (255.0 / (p_high - p_low)), 0, 255).astype(np.uint8)
+    else:
+        stretched = gray
+    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
+    boosted = clahe.apply(stretched)
+    blurred = cv2.GaussianBlur(boosted, (0, 0), 1.2)
+    sharpened = cv2.addWeighted(boosted, 1.7, blurred, -0.7, 0)
+    return cv2.cvtColor(sharpened, cv2.COLOR_GRAY2BGR)
+
+
+def normalize_text_for_match(text: str) -> str:
+    return re.sub(r"\s+", " ", text.strip().lower())
+
+
+def text_quality_score(text: str) -> float:
+    if not text:
+        return 0.0
+    total = len(text)
+    letters = sum(c.isalpha() for c in text)
+    digits = sum(c.isdigit() for c in text)
+    spaces = sum(c.isspace() for c in text)
+    punctuation = sum(c in ".,;:'\"-()/?!" for c in text)
+    common = letters + digits + spaces + punctuation
+    weird = max(0, total - common)
+    words = re.findall(r"[A-Za-z]{2,}", text)
+    score = (letters / total) + (len(words) / 8.0)
+    if weird:
+        score -= min(0.5, weird / total)
+    return score
+
+
+def should_insert_continuation(text: str) -> bool:
+    if not text:
+        return False
+    words = re.findall(r"[A-Za-z]{2,}", text)
+    if len(words) < 3:
+        return False
+    if len(text.strip()) < 20:
+        return False
+    return True
+
+
+def find_comm_index(
+    blocks: list[dict],
+    timestamp: str,
+    speaker: str = "",
+    location: str = "",
+    first: bool = True
+) -> int | None:
+    if not timestamp:
+        return None
+    speaker = speaker.upper().strip()
+    location = location.upper().strip()
+    matches = []
+    for idx, block in enumerate(blocks):
+        if block.get("type") != "comm":
+            continue
+        if block.get("timestamp") != timestamp:
+            continue
+        if speaker and block.get("speaker", "").upper() != speaker:
+            continue
+        if location and block.get("location", "").upper() != location:
+            continue
+        matches.append(idx)
+    if matches:
+        return matches[0] if first else matches[-1]
+    if speaker or location:
+        for idx, block in enumerate(blocks):
+            if block.get("type") == "comm" and block.get("timestamp") == timestamp:
+                return idx
+    return None
+
+
+def merge_payloads(preferred: dict, fallback: dict) -> dict:
+    preferred_blocks = list(preferred.get("blocks", []))
+    fallback_blocks = fallback.get("blocks", [])
+    if not fallback_blocks:
+        return preferred
+
+    preferred_texts = set()
+    for block in preferred_blocks:
+        text = block.get("text")
+        if text:
+            preferred_texts.add(normalize_text_for_match(text))
+
+    prev_ts_list = []
+    prev_ts = None
+    for block in fallback_blocks:
+        if block.get("type") == "comm" and block.get("timestamp"):
+            prev_ts = block.get("timestamp")
+        prev_ts_list.append(prev_ts)
+
+    next_ts_list = [None] * len(fallback_blocks)
+    next_ts = None
+    for idx in range(len(fallback_blocks) - 1, -1, -1):
+        block = fallback_blocks[idx]
+        if block.get("type") == "comm" and block.get("timestamp"):
+            next_ts = block.get("timestamp")
+        next_ts_list[idx] = next_ts
+
+    def word_overlap_ratio(a: str, b: str) -> float:
+        a_words = set(re.findall(r"[A-Za-z]+", a.lower()))
+        b_words = set(re.findall(r"[A-Za-z]+", b.lower()))
+        if not a_words and not b_words:
+            return 0.0
+        return len(a_words & b_words) / max(1, len(a_words | b_words))
+
+    for idx, fallback_block in enumerate(fallback_blocks):
+        fb_text = fallback_block.get("text", "")
+        if fallback_block.get("type") == "comm" and fallback_block.get("timestamp"):
+            target_idx = find_comm_index(
+                preferred_blocks,
+                fallback_block.get("timestamp", ""),
+                fallback_block.get("speaker", ""),
+                fallback_block.get("location", ""),
+                first=True
+            )
+            if target_idx is not None and fb_text:
+                preferred_block = preferred_blocks[target_idx]
+                pref_text = preferred_block.get("text", "")
+                pref_score = text_quality_score(pref_text)
+                fb_score = text_quality_score(fb_text)
+                if (
+                    pref_text
+                    and pref_score >= 0.8
+                    and len(pref_text.strip()) <= 15
+                    and len(fb_text.strip()) >= 25
+                    and word_overlap_ratio(pref_text, fb_text) < 0.2
+                ):
+                    preferred_blocks.insert(target_idx + 1, {"type": "continuation", "text": fb_text})
+                    preferred_texts.add(normalize_text_for_match(fb_text))
+                elif (
+                    not pref_text
+                    or pref_score < 0.6
+                    or fb_score > pref_score + 0.4
+                ):
+                    preferred_block["text"] = fb_text
+                    if not preferred_block.get("speaker") and fallback_block.get("speaker"):
+                        preferred_block["speaker"] = fallback_block.get("speaker")
+                    if not preferred_block.get("location") and fallback_block.get("location"):
+                        preferred_block["location"] = fallback_block.get("location")
+            continue
+
+        if fallback_block.get("type") == "continuation":
+            if not should_insert_continuation(fb_text):
+                continue
+            if normalize_text_for_match(fb_text) in preferred_texts:
+                continue
+            prev_ts = prev_ts_list[idx]
+            next_ts = next_ts_list[idx]
+            insert_idx = None
+            if prev_ts:
+                insert_idx = find_comm_index(preferred_blocks, prev_ts, first=False)
+                if insert_idx is not None:
+                    insert_idx += 1
+            if insert_idx is None and next_ts:
+                insert_idx = find_comm_index(preferred_blocks, next_ts, first=True)
+            if insert_idx is None:
+                insert_idx = 0
+            preferred_blocks.insert(insert_idx, {"type": "continuation", "text": fb_text})
+            preferred_texts.add(normalize_text_for_match(fb_text))
+
+    preferred["blocks"] = preferred_blocks
+    return preferred
 
 def setup_logging(verbose: bool = False) -> None:
     """Configure logging."""
@@ -145,6 +333,16 @@ def run_ocr_pipeline(
         or config.pipeline_defaults.get("ocr_text_column_pass")
         or False
     )
+    ocr_dual_pass = bool(
+        mission_overrides.get("ocr_dual_pass")
+        or config.pipeline_defaults.get("ocr_dual_pass")
+        or False
+    )
+    ocr_faint_pass = bool(
+        mission_overrides.get("ocr_faint_pass")
+        or config.pipeline_defaults.get("ocr_faint_pass")
+        or False
+    )
     col2_end_val = (
         mission_overrides.get("col2_end")
         or config.pipeline_defaults.get("col2_end")
@@ -165,13 +363,18 @@ def run_ocr_pipeline(
         page_id = f"{pdf_path.stem}_page_{page_num + 1:04d}"
 
         try:
+            stage_t = {}
             # Load enhanced image from disk
+            t0 = time.perf_counter()
             enhanced_path = pr.output.enhanced_image
             enhanced = cv2.imread(str(enhanced_path))
             if enhanced is None:
                 raise FileNotFoundError(f"Enhanced image not found: {enhanced_path}")
+            stage_t["load_enhanced"] = time.perf_counter() - t0
 
+            t0 = time.perf_counter()
             raw_text = client.ocr_image(enhanced)
+            stage_t["ocr_plain"] = time.perf_counter() - t0
             # Preserve raw OCR response for diagnostics.
             raw_text_output = raw_text
             if raw_text_output and not raw_text_output.endswith("\n"):
@@ -179,13 +382,15 @@ def run_ocr_pipeline(
             # Normalize newlines for parsing.
             text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
 
-            heuristics_start = time.perf_counter()
+            t0 = time.perf_counter()
             lines = [line.strip() for line in text.splitlines() if line.strip()]
             rows = parse_ocr_text(text, page_num, mission_keywords)
+            stage_t["parse_plain"] = time.perf_counter() - t0
 
             # Get last timestamp from previous pages
             initial_ts = ts_index.get_last_timestamp_before(page_num)
 
+            t0 = time.perf_counter()
             payload = build_page_json(
                 rows, lines, page_num, page_offset,
                 valid_speakers, text_replacements,
@@ -193,6 +398,75 @@ def run_ocr_pipeline(
                 initial_ts=initial_ts,
                 previous_block_type=previous_block_type
             )
+            stage_t["build_plain"] = time.perf_counter() - t0
+
+            raw_image = None
+            if ocr_dual_pass or ocr_faint_pass:
+                t0 = time.perf_counter()
+                raw_pdf_path = pr.output.raw_pdf
+                raw_image = render_pdf_page_image(raw_pdf_path, config.dpi)
+                raw_image_path = pr.output.assets_dir / f"{page_id}_raw.png"
+                cv2.imwrite(str(raw_image_path), raw_image)
+                stage_t["render_raw"] = time.perf_counter() - t0
+            if ocr_dual_pass:
+                t0 = time.perf_counter()
+                raw_text_fallback = client.ocr_image(raw_image)
+                stage_t["ocr_raw"] = time.perf_counter() - t0
+                raw_text_fallback_output = raw_text_fallback
+                if raw_text_fallback_output and not raw_text_fallback_output.endswith("\n"):
+                    raw_text_fallback_output += "\n"
+                raw_text_fallback = raw_text_fallback.replace("\r\n", "\n").replace("\r", "\n")
+                t0 = time.perf_counter()
+                fallback_lines = [line.strip() for line in raw_text_fallback.splitlines() if line.strip()]
+                fallback_rows = parse_ocr_text(raw_text_fallback, page_num, mission_keywords)
+                stage_t["parse_raw"] = time.perf_counter() - t0
+                t0 = time.perf_counter()
+                fallback_payload = build_page_json(
+                    fallback_rows, fallback_lines, page_num, page_offset,
+                    valid_speakers, text_replacements,
+                    mission_keywords, valid_locations,
+                    initial_ts=initial_ts,
+                    previous_block_type=previous_block_type
+                )
+                stage_t["build_raw"] = time.perf_counter() - t0
+                t0 = time.perf_counter()
+                payload = merge_payloads(payload, fallback_payload)
+                stage_t["merge_raw"] = time.perf_counter() - t0
+                (ocr_dir / f"{page_id}_ocr_raw_fallback.txt").write_text(
+                    raw_text_fallback_output, encoding="utf-8"
+                )
+            if ocr_faint_pass:
+                t0 = time.perf_counter()
+                faint_image = enhance_for_faint_text(raw_image)
+                faint_image_path = pr.output.assets_dir / f"{page_id}_faint.png"
+                cv2.imwrite(str(faint_image_path), faint_image)
+                stage_t["enhance_faint"] = time.perf_counter() - t0
+                t0 = time.perf_counter()
+                faint_text = client.ocr_image(faint_image)
+                stage_t["ocr_faint"] = time.perf_counter() - t0
+                faint_text_output = faint_text
+                if faint_text_output and not faint_text_output.endswith("\n"):
+                    faint_text_output += "\n"
+                faint_text = faint_text.replace("\r\n", "\n").replace("\r", "\n")
+                t0 = time.perf_counter()
+                faint_lines = [line.strip() for line in faint_text.splitlines() if line.strip()]
+                faint_rows = parse_ocr_text(faint_text, page_num, mission_keywords)
+                stage_t["parse_faint"] = time.perf_counter() - t0
+                t0 = time.perf_counter()
+                faint_payload = build_page_json(
+                    faint_rows, faint_lines, page_num, page_offset,
+                    valid_speakers, text_replacements,
+                    mission_keywords, valid_locations,
+                    initial_ts=initial_ts,
+                    previous_block_type=previous_block_type
+                )
+                stage_t["build_faint"] = time.perf_counter() - t0
+                t0 = time.perf_counter()
+                payload = merge_payloads(payload, faint_payload)
+                stage_t["merge_faint"] = time.perf_counter() - t0
+                (ocr_dir / f"{page_id}_ocr_faint_fallback.txt").write_text(
+                    faint_text_output, encoding="utf-8"
+                )
 
             if ocr_text_column_pass:
                 missing_text_blocks: list[dict] = [
@@ -204,7 +478,9 @@ def run_ocr_pipeline(
                     h, w = enhanced.shape[:2]
                     start_x = min(w - 1, max(0, int(w * col2_end) + 5))
                     column_crop = enhanced[:, start_x:w]
+                    t0 = time.perf_counter()
                     column_text = client.ocr_image_with_prompt(column_crop, text_column_prompt)
+                    stage_t["ocr_textcol"] = stage_t.get("ocr_textcol", 0.0) + (time.perf_counter() - t0)
                     column_text = column_text.replace("\r\n", "\n").replace("\r", "\n")
                     column_lines_raw = column_text.splitlines()
                     column_text = "\n".join(column_lines_raw)
@@ -257,28 +533,43 @@ def run_ocr_pipeline(
             header["page"] = page_num + 1 + page_offset
             header["tape"] = f"{tape_x}/{tape_y}"
             payload["header"] = header
-            heuristics_time = time.perf_counter() - heuristics_start
 
             # Update index
+            t0 = time.perf_counter()
             page_timestamps = [
                 b.get("timestamp") for b in payload.get("blocks", [])
                 if b.get("type") == "comm" and b.get("timestamp")
             ]
             ts_index.add_timestamps(page_num, page_timestamps)
+            stage_t["ts_index"] = time.perf_counter() - t0
 
+            t0 = time.perf_counter()
             (ocr_dir / f"{page_id}_ocr_raw.txt").write_text(raw_text_output, encoding="utf-8")
             (page_dir / f"{page_id}.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            stage_t["write_out"] = time.perf_counter() - t0
 
             page_duration = time.perf_counter() - page_start
+            postprocess_time = sum(
+                stage_t.get(k, 0.0) for k in (
+                    "parse_plain", "build_plain", "parse_raw", "build_raw", "merge_raw",
+                    "enhance_faint", "parse_faint", "build_faint", "merge_faint",
+                    "ts_index", "write_out"
+                )
+            )
             timings[page_num] = {
-                "ocr_s": page_duration - heuristics_time,
-                "postprocess_s": heuristics_time,
-                "ocr_total_s": page_duration
+                "ocr_s": page_duration - postprocess_time,
+                "postprocess_s": postprocess_time,
+                "ocr_total_s": page_duration,
+                **stage_t
             }
             timing_info = (
                 f"extract={pr.extract_s or 0:.3f}s "
                 f"process={pr.process_s or 0:.3f}s "
                 f"output={pr.output_s or 0:.3f}s "
+                f"ocr_plain={stage_t.get('ocr_plain', 0):.3f}s "
+                f"ocr_raw={stage_t.get('ocr_raw', 0):.3f}s "
+                f"ocr_faint={stage_t.get('ocr_faint', 0):.3f}s "
+                f"ocr_textcol={stage_t.get('ocr_textcol', 0):.3f}s "
                 f"ocr={timings[page_num]['ocr_s']:.3f}s "
                 f"postprocess={timings[page_num]['postprocess_s']:.3f}s "
                 f"ocr_total={timings[page_num]['ocr_total_s']:.3f}s"
@@ -451,6 +742,10 @@ def process(
                     f"extract={pr.extract_s or 0:.3f}s "
                     f"process={pr.process_s or 0:.3f}s "
                     f"output={pr.output_s or 0:.3f}s "
+                    f"ocr_plain={ocr_t.get('ocr_plain', 0):.3f}s "
+                    f"ocr_raw={ocr_t.get('ocr_raw', 0):.3f}s "
+                    f"ocr_faint={ocr_t.get('ocr_faint', 0):.3f}s "
+                    f"ocr_textcol={ocr_t.get('ocr_textcol', 0):.3f}s "
                     f"ocr={ocr_t.get('ocr_s', 0):.3f}s "
                     f"postprocess={ocr_t.get('postprocess_s', 0):.3f}s "
                     f"ocr_total={ocr_t.get('ocr_total_s', 0):.3f}s"

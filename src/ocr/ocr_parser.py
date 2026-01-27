@@ -27,14 +27,14 @@ SPEAKER_LINE_RE = re.compile(
 )
 SPEAKER_PAREN_RE = re.compile(r"^\(([A-Z0-9]+)\)$")
 LOCATION_PAREN_RE = re.compile(r"^\s*\(([A-Z0-9\s]+)\)\s*$")
-HEADER_PAGE_RE = re.compile(r"\bPAGE\s*(\d{1,4})\b", re.IGNORECASE)
+HEADER_PAGE_RE = re.compile(r"\b(?:PAGE|PLAY|LAY)\s*(\d{1,4})\b", re.IGNORECASE)
 HEADER_TAPE_RE = re.compile(r"\bTAPE\s*([0-9]{1,2}\s*/\s*[0-9]{1,2})\b", re.IGNORECASE)
-HEADER_PAGE_ONLY_RE = re.compile(r"^\s*PAGE\s*\d{1,4}\s*$", re.IGNORECASE)
+HEADER_PAGE_ONLY_RE = re.compile(r"^\s*(?:PAGE|PLAY|LAY)\s*\d{1,4}\s*$", re.IGNORECASE)
 HEADER_TAPE_ONLY_RE = re.compile(r"^\s*TAPE\s*\d{1,2}\s*/\s*\d{1,2}\s*$", re.IGNORECASE)
 HEADER_TAPE_SIMPLE_RE = re.compile(r"^\s*TAPE\s*\d{1,4}\s*$", re.IGNORECASE)
 HEADER_TAPE_PAGE_ONLY_RE = re.compile(
     r"^\s*(?:TAPE\s*\d{1,2}\s*/\s*\d{1,2}\s+PAGE\s*\d{1,4}"
-    r"|PAGE\s*\d{1,4}\s+TAPE\s*\d{1,2}\s*/\s*\d{1,2})\s*$",
+    r"|(?:PAGE|PLAY|LAY)\s*\d{1,4}\s+TAPE\s*\d{1,2}\s*/\s*\d{1,2})\s*$",
     re.IGNORECASE,
 )
 HEADER_KEYWORDS = ("GOSS", "NET", "TAPE", "PAGE", "APOLLO", "AIR-TO-GROUND")

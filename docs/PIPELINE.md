@@ -132,6 +132,9 @@ thinning text strokes.
 2. **Image Write**: Saves the processed image as PNG.
    - Uses `cv2.IMWRITE_PNG_COMPRESSION = 6` (Balance of speed/size).
    - Filename: `*_enhanced.png`.
+3. **OCR Debug Assets** (optional):
+   - `*_raw.png`: direct render from the source PDF (no enhancement).
+   - `*_faint.png`: high-contrast fallback render for faint text recovery.
 
 ---
 
@@ -167,11 +170,30 @@ Two distinct prompts are used based on the task:
    - Purpose: Recovers dialogue lost when the primary pass hallucinates a
      newline early.
 
-### 4.3 Validation
+### 4.3 Multi-pass OCR (Fallbacks)
+
+When enabled, the pipeline runs **additional OCR passes** and merges them
+line-by-line with the primary output:
+
+1. **Raw Pass (`ocr_dual_pass`)**:
+   - Source: `*_raw.png` (no enhancement).
+   - Purpose: recover lines that look worse after preprocessing.
+2. **Faint Pass (`ocr_faint_pass`)**:
+   - Source: `*_faint.png` (contrast-stretched + CLAHE + light sharpening).
+   - Purpose: recover faded lines anywhere in the page.
+
+Merge behavior:
+- If a fallback line shares the same timestamp/speaker, it can **replace**
+  low-quality primary text.
+- If the primary text is short but valid (e.g. “Go ahead.”) and the fallback
+  is a longer, different line, it is inserted as a **continuation** right
+  after the matching timestamp block.
+
+### 4.4 Validation
 
 - The client checks for empty responses.
-- **Error Handling**: Raises `OCRResponseError` on malformed JSON, triggering
-  a retry or failure log depending on context.
+- **Error Handling**: Network errors or empty responses are logged and
+  surfaced as OCR failures for the page.
 
 ---
 

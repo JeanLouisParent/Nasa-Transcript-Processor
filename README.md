@@ -66,6 +66,15 @@ pip install -r requirements.txt
 
 The pipeline is operated via the `main.py` CLI.
 
+```mermaid
+flowchart LR
+    PDF[Input PDF] --> IMG[Image Processing]
+    IMG --> OCR[OCR Passes]
+    OCR --> PARSE[Parser + Correctors]
+    PARSE --> PAGE[Page JSON]
+    PAGE --> MERGE[Merged JSON + TXT]
+```
+
 ### Processing a Transcript
 
 The `process` command is the main entry point. It first runs the **Image

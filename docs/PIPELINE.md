@@ -15,11 +15,18 @@ flowchart LR
     end
 
     subgraph "Sequential Intelligence Stage"
-    OUT -.-> OCR[OCR Client]
-    OCR --> PARSE[Parser State Machine]
+    OUT -.-> OCR1[OCR Primary]
+    OUT -.-> OCR2[OCR Raw Fallback]
+    OUT -.-> OCR3[OCR Faint Fallback]
+    OCR1 --> MERGE[Merge Passes]
+    OCR2 --> MERGE
+    OCR3 --> MERGE
+    MERGE --> PARSE[Parser State Machine]
     PARSE --> CORR[Semantic Correction]
-    CORR --> JSON[JSON Output]
+    CORR --> JSON[Page JSON]
     end
+
+    JSON --> EXP[Global Export]
 ```
 <!-- markdownlint-enable MD013 -->
 
@@ -194,6 +201,25 @@ Merge behavior:
 - The client checks for empty responses.
 - **Error Handling**: Network errors or empty responses are logged and
   surfaced as OCR failures for the page.
+
+---
+
+## OCR Pass Sequencing
+
+```mermaid
+sequenceDiagram
+    participant P as Pipeline
+    participant C as LM Studio
+    participant M as Merge
+    P->>C: OCR Primary (enhanced image)
+    C-->>P: text_primary
+    P->>C: OCR Raw Fallback (raw render)
+    C-->>P: text_raw
+    P->>C: OCR Faint Fallback (contrast-boosted)
+    C-->>P: text_faint
+    P->>M: merge(text_primary, text_raw, text_faint)
+    M-->>P: merged_text
+```
 
 ---
 

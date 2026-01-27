@@ -25,7 +25,8 @@ flowchart TD
     end
 
     BlockCont --> Stitch[Smart Stitching]
-    BlockMeta --> Index[Update Index]
+    BlockMeta --> MetaRules[Meta Rules]
+    MetaRules --> Index[Update Index]
     Text --> Stitch
 
     Stitch --> Meta[Dead Reckoning]
@@ -126,6 +127,21 @@ start is detected.
      (fuzzy-canonicalized).
    - `BEGIN/END LUNAR REV N`: Tagged as `meta_type: lunar_rev` with
      timestamp formatted as `DD HH MM --`.
+
+---
+
+## Meta Classification Cheatsheet
+
+```mermaid
+flowchart LR
+    A[Line Text] --> B{Matches}
+    B -->|REST PERIOD + NO COMM| R[meta: rest_period]
+    B -->|AIR-TO-GROUND...| H[meta: transcript_header]
+    B -->|BEGIN/END LUNAR REV N| L[meta: lunar_rev]
+    B -->|END OF TAPE| E[meta: end_of_tape]
+    B -->|*** footer| F[footer]
+    B -->|none| C[comm or continuation]
+```
    - `END OF TAPE`: Marked as `meta_type="end_of_tape"`, triggers Tape
      counter increment.
    - `REST PERIOD`, `LOS`, `AOS`: Marked as `meta` type.

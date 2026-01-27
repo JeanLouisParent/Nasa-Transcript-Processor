@@ -10,16 +10,21 @@ stages to optimize for both throughput (Image Processing) and accuracy
 (Intelligence).
 
 ```mermaid
-flowchart TD
+flowchart LR
     CLI[main.py CLI] --> CFG[Config Loader]
-    CLI --> IP[Image Pipeline]
-    CLI --> OP[OCR Loop]
+    CLI --> PIPE[Transcript Pipeline]
+    PIPE --> IMG[Image Stage]
+    PIPE --> OCR[OCR Stage]
+    OCR --> EXP[Global Export]
 
-    subgraph "Data Artifacts"
+    subgraph Artifacts
     CFG --> TOML[config/*.toml]
-    IP --> ASSETS[output/.../pages/.../assets/]
-    OP --> JSON[output/.../pages/Page_NN.json]
-    OP --> IDX[state/..._timestamps_index.json]
+    IMG --> ASSETS[output/.../pages/.../assets/]
+    OCR --> PAGEJSON[output/.../pages/Page_NNN.json]
+    OCR --> OCRLOGS[output/.../pages/.../ocr/]
+    OCR --> IDX[state/..._timestamps_index.json]
+    EXP --> MERGED[output/.../<stem>_merged.json]
+    EXP --> TXT[output/.../<stem>_transcript.txt]
     end
 ```
 
@@ -123,6 +128,43 @@ state/
     before any parsing logic runs. Useful for tweaking prompts.
 
 ## Module Responsibilities
+
+```mermaid
+flowchart TB
+    subgraph Core
+        PIPELINE[src.core.pipeline] --> CONFIG[src.core.config]
+    end
+    subgraph Processors
+        EXTRACT[src.processors.page_extractor]
+        IMAGE[src.processors.image_processor]
+    end
+    subgraph OCR
+        CLIENT[src.ocr.ocr_client]
+        PARSER[src.ocr.ocr_parser]
+    end
+    subgraph Correctors
+        TS[src.correctors.timestamp_corrector]
+        TXT[src.correctors.text_corrector]
+        SPK[src.correctors.speaker_corrector]
+        IDX[src.correctors.timestamp_index]
+    end
+    subgraph Utils
+        OUT[src.utils.output_generator]
+        MERGE[src.utils.merge_export]
+        CONSOLE[src.utils.console]
+    end
+
+    PIPELINE --> EXTRACT
+    PIPELINE --> IMAGE
+    PIPELINE --> OUT
+    PIPELINE --> CLIENT
+    PIPELINE --> PARSER
+    PIPELINE --> MERGE
+    PARSER --> TS
+    PARSER --> TXT
+    PARSER --> SPK
+    PARSER --> IDX
+```
 
 ### Core (`src.core`)
 

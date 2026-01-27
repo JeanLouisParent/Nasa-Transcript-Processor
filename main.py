@@ -630,6 +630,8 @@ def export(pdf_name: str):
     print(f"Wrote global JSON: {json_path}")
     print(f"Wrote transcript TXT: {txt_path}")
 
+@cli.command()
+@click.argument("pdf_name")
 @click.option("-p", "--pages", help="Page range (e.g., '1-50', '10,12-14')")
 @click.option("--clean", is_flag=True, help="Remove existing output first")
 @click.option("--no-ocr", is_flag=True, help="Skip OCR step")

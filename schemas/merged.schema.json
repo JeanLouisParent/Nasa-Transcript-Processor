@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/JeanLouisParent/Nasa-Transcript-Processor/schemas/merged.schema.json",
+  "title": "NASA Transcript Merged Document",
+  "description": "Schema for a complete merged transcript document",
+  "type": "object",
+  "required": ["document", "page_count", "pages"],
+  "additionalProperties": false,
+  "properties": {
+    "document": {
+      "type": "string",
+      "description": "Document stem name (PDF filename without extension)"
+    },
+    "page_count": {
+      "type": "integer",
+      "description": "Total number of pages in the document",
+      "minimum": 0
+    },
+    "pages": {
+      "type": "array",
+      "description": "Array of all processed pages",
+      "items": {
+        "type": "object",
+        "required": ["header", "blocks", "source"],
+        "additionalProperties": false,
+        "properties": {
+          "header": {
+            "$ref": "page.schema.json#/properties/header"
+          },
+          "blocks": {
+            "$ref": "page.schema.json#/properties/blocks"
+          },
+          "source": {
+            "type": "string",
+            "description": "Path to the source page JSON file"
+          }
+        }
+      }
+    }
+  }
+}

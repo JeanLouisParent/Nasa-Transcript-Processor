@@ -1,219 +1,185 @@
 # NASA Transcript Processing Pipeline
 
-Pipeline for processing scanned NASA mission transcripts. Performs
-page-by-page image enhancement and OCR via LM Studio, then parses the
-plain OCR into structured blocks.
-
-## Features
-
-- **Page-by-page processing**: Processes one page at a time without
-  loading entire PDF.
-- **Image enhancement**: Deskew, normalization, spot cleaning, and
-  contrast improvement.
-- **Speaker Location Extraction**: Automatically identifies the origin
-  of the speaker (e.g., `TRANQ`, `COLUMBIA`) and separates it from the
-  dialogue.
-- **Global Timestamp Indexing**: Maintains chronological integrity across
-  the entire document, fixing OCR noise and duplicate timecodes.
-- **LM Studio OCR**: High-performance AI OCR integration (OpenAI-compatible).
-- **Multi-pass OCR**: Primary + raw + faint fallback passes with merge logic.
-- **OCR Output**: Plain OCR output with optional column-aware fill pass.
-- **Right-Column OCR Fill**: Optional second OCR pass for the text column
-  to fill missing dialogue.
-- **Header/Tape Reconstruction**: Ignores OCR page/tape lines and
-  recomputes metadata consistently.
-- **Global Export**: Merged JSON + formatted TXT transcript per PDF.
-- **Parallel processing**: Multi-threaded image processing with progress
-  tracking.
-
-## Getting Started
-
-### 1. Requirements & Prerequisites
-
-- **Python 3.10+**
-- **LM Studio** (running with a vision model like `qwen3-vl-4b`) for the
-  OCR stage.
-- **Poppler** (optional, for some PDF operations)
-
-### 2. Installation
-
-```bash
-# Clone the repository
-git clone <repository-url>
-cd ocr_transcript_v2
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### 3. Preparation
-
-1. Place your source PDF files in the `input/` directory.
-
-2. Ensure your LM Studio server is running and accessible
-   (default: `http://localhost:1234`).
-
-3. Check `config/missions.toml` if your mission requires specific page
-   offsets.
-
----
-
-## Usage Guide
-
-The pipeline is operated via the `main.py` CLI.
+A specialized pipeline for digitizing scanned NASA Apollo mission transcripts. Combines intelligent image enhancement with Vision-Language Model (VLM) OCR to produce structured, searchable transcripts.
 
 ```mermaid
 flowchart LR
-    PDF[Input PDF] --> IMG[Image Processing]
-    IMG --> OCR[OCR Passes]
-    OCR --> PARSE[Parser + Correctors]
-    PARSE --> PAGE[Page JSON]
-    PAGE --> MERGE[Merged JSON + TXT]
+    PDF[/"PDF Scans"/] --> IMG["Image<br/>Processing"]
+    IMG --> OCR["Multi-pass<br/>VLM OCR"]
+    OCR --> INT["Text<br/>Intelligence"]
+    INT --> OUT[/"JSON + TXT"/]
 ```
 
-### Processing a Transcript
+## Features
 
-The `process` command is the main entry point. It first runs the **Image
-Pipeline** (extraction & enhancement) and then triggers the **OCR Loop**.
+| Feature | Description |
+|:--------|:------------|
+| **Smart Image Enhancement** | Deskew, normalization, noise removal, and contrast optimization |
+| **Multi-pass OCR** | Primary + raw + faint fallback passes with intelligent merge |
+| **Structured Parsing** | Extracts timestamps, speakers, locations, and dialogue |
+| **Timestamp Recovery** | Maintains chronological integrity across pages |
+| **Speaker Correction** | Fuzzy matching against mission-specific callsigns |
+| **Global Export** | Merged JSON and formatted text transcripts |
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- **Python 3.10+**
+- **LM Studio** running a vision model (e.g., `qwen3-vl-4b`)
+
+### Installation
 
 ```bash
-# Basic processing (looks for the file in the 'input/' folder)
+git clone <repository-url>
+cd ocr_transcript_v2
+
+python -m venv venv
+source venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+### Basic Usage
+
+```bash
+# Place your PDF in input/ then run:
 python main.py process AS11_TEC.PDF
 
-# Processing specific page ranges
-# Format: 'start-end', 'single', or 'multiple,ranges'
+# Process specific pages
 python main.py process AS11_TEC.PDF --pages 1-50
-python main.py process AS11_TEC.PDF --pages 10,12,14-16
 
-# Skip OCR (Image processing only)
+# Image processing only (no OCR)
 python main.py process AS11_TEC.PDF --no-ocr
-
-# Clean previous output before starting
-python main.py process AS11_TEC.PDF --clean
-
-# Overriding OCR URL at runtime
-python main.py process AS11_TEC.PDF --ocr-url http://192.168.1.50:1234
-
-# Use column-aware prompt (no tags)
-python main.py process AS11_TEC.PDF --ocr-prompt column
-
-# Print per-page timing breakdowns
-python main.py process AS11_TEC.PDF --pages 1-5 --timing
-```
-
-### Exporting a Merged Transcript
-
-The pipeline auto-generates a merged JSON and formatted TXT at the end of
-`process`. You can also run the export manually:
-
-```bash
-python main.py export AS11_TEC.PDF
-```
-
-### Checking PDF Info
-
-To verify the number of pages and basic metadata before processing:
-
-```bash
-python main.py info AS11_TEC.PDF
 ```
 
 ---
 
-## CLI Arguments
+## CLI Reference
 
-### `process`
+### Commands
 
-- `-p, --pages TEXT` — page range (e.g. `1-50`, `10,12,14-16`)
-- `--clean` — delete previous output before running
-- `--no-ocr` — skip OCR stage (image processing only)
-- `--ocr-url TEXT` — override LM Studio URL
-- `--ocr-prompt [plain|column]` — OCR prompt mode
-- `--timing / --no-timing` — show per-page timing breakdowns
-- `-v, --verbose` — verbose logs to `pipeline.log`
+| Command | Description |
+|:--------|:------------|
+| `process <PDF>` | Run the full pipeline (image + OCR + export) |
+| `export <PDF>` | Regenerate merged JSON and TXT from existing page data |
+| `info <PDF>` | Display PDF metadata and page count |
 
-### `export`
+### Process Options
 
-- `pdf_name` — source PDF filename in `input/`
+```
+-p, --pages TEXT        Page range (e.g., "1-50", "10,12,14-16")
+--clean                 Delete previous output before running
+--no-ocr                Skip OCR stage (image processing only)
+--ocr-url TEXT          Override LM Studio URL
+--ocr-prompt [plain|column]  OCR prompt mode
+--timing / --no-timing  Show per-page timing breakdowns
+-v, --verbose           Verbose logging to pipeline.log
+```
 
-### `info`
+### Examples
 
-- `pdf_name` — source PDF filename in `input/`
+```bash
+# Process pages 100-150 with timing info
+python main.py process AS11_TEC.PDF --pages 100-150 --timing
+
+# Clean start with custom OCR server
+python main.py process AS11_TEC.PDF --clean --ocr-url http://192.168.1.50:1234
+
+# Export only (after prior processing)
+python main.py export AS11_TEC.PDF
+```
+
+---
+
+## Output Structure
+
+```
+output/
+└── AS11_TEC/
+    ├── AS11_TEC_merged.json      # Complete structured transcript
+    ├── AS11_TEC_transcript.txt   # Human-readable transcript
+    └── pages/
+        └── Page_001/
+            ├── AS11_TEC_page_0001.json  # Per-page structured data
+            ├── assets/
+            │   ├── *_enhanced.png       # Processed image (sent to OCR)
+            │   ├── *_raw.png            # Original render
+            │   └── *_faint.png          # High-contrast fallback
+            └── ocr/
+                ├── *_ocr_raw.txt        # Primary OCR output
+                └── *_ocr_*.txt          # Fallback passes
+
+state/
+└── AS11_TEC_timestamps_index.json   # Cross-page timestamp continuity
+```
 
 ---
 
 ## Configuration
 
-**Global defaults**: `config/defaults.toml`
+Configuration is layered: **defaults** → **mission overrides** → **CLI arguments**
+
+### Global Defaults
+
+`config/defaults.toml` — Applies to all runs:
 
 ```toml
-# I/O
+# I/O directories
 input_dir = "input"
 output_dir = "output"
 state_dir = "state"
 
-# OCR Settings
+# OCR
 ocr_url = "http://localhost:1234"
 ocr_model = "qwen/qwen3-vl-4b"
 ocr_timeout = 120
 ocr_max_tokens = 4096
-ocr_prompt = "plain" # "plain" or "column"
-ocr_text_column_pass = true
-ocr_dual_pass = true
-ocr_faint_pass = true
 
-# Processing Settings
+# Multi-pass OCR (recommended)
+ocr_dual_pass = true      # Raw image fallback
+ocr_faint_pass = true     # High-contrast fallback
+ocr_text_column_pass = true  # Right-column fill
+
+# Processing
 dpi = 300
 parallel = true
 workers = 4
-timing = true
-
-# Image Enhancement
-clahe_clip_limit = 2.0  # (Legacy param, kept for compatibility)
-bilateral_d = 9         # (Legacy param, kept for compatibility)
-deskew_angle_threshold = 0.5
-
-# Right-Column Crop Settings
-# Used ONLY for the optional 'ocr_text_column_pass' to isolate the text column
-col2_end = 0.30
-header_ratio = 0.10
 ```
 
-**Mission configs**: `config/missions.toml`
+### Mission Overrides
+
+`config/missions.toml` — Per-mission settings:
 
 ```toml
 [mission.11]
 file_name = "AS11_TEC.PDF"
 page_offset = -2
+valid_speakers = ["CDR", "CC", "CMP", "LMP", "SC", "HOUSTON"]
+valid_locations = ["TRANQ", "COLUMBIA", "EAGLE"]
 ```
 
-## Outputs
+### OCR Prompts
 
-After a run, outputs are stored under `output/<stem>/`:
+`config/prompts.toml` — Customize VLM instructions without code changes.
 
-- `pages/Page_NNN/` — per-page JSON + OCR artifacts.
-- `<stem>_merged.json` — merged document JSON.
-- `<stem>_transcript.txt` — formatted transcript text.
+See [Configuration Reference](docs/CONFIGURATION.md) for complete details.
 
-The timestamp index is stored in `state/<stem>_timestamps_index.json`.
-
-## Prompts
-
-OCR and classification prompts live in `config/prompts.toml`.
-See `docs/PROMPTS.md` for the full reference.
+---
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md) - System design and data flow.
-- [Pipeline](docs/PIPELINE.md) - Detailed breakdown of processing stages.
-- [Post-Processing](docs/POST_PROCESSING.md) - Text intelligence and
-  structural parsing.
-- [Extending](docs/EXTENDING.md) - Adding missions, block types,
-  processing steps.
+| Document | Content |
+|:---------|:--------|
+| [Architecture](docs/ARCHITECTURE.md) | System design, data structures, module responsibilities |
+| [Pipeline](docs/PIPELINE.md) | Image processing stages, OCR strategy |
+| [Post-Processing](docs/POST_PROCESSING.md) | Parsing algorithms, correction logic |
+| [Configuration](docs/CONFIGURATION.md) | Complete configuration reference |
+| [Schemas](docs/SCHEMAS.md) | JSON Schema definitions for output validation |
+
+---
 
 ## License
 

@@ -47,3 +47,5 @@ mission_keywords = [
 "\\bRFV\\b" = "REV"
 "\\bRE V\\b" = "REV"
 "\\bre\\s+id\\b" = "read"
+"(?i)air[-\\s]?two[-\\s]?ground voice transposition" = "AIR-TO-GROUND VOICE TRANSCRIPTION"
+"(?i)air[-\\s]?to[-\\s]?ground voice transposition" = "AIR-TO-GROUND VOICE TRANSCRIPTION"

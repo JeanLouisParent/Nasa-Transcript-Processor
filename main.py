@@ -498,6 +498,7 @@ def run_ocr_pipeline(
                     if column_lines:
                         for block, line in zip(missing_text_blocks, column_lines, strict=False):
                             block["text"] = line
+                            block["_column_fill"] = True
                         (ocr_dir / f"{page_id}_ocr_textcol.txt").write_text(
                             column_text + "\n", encoding="utf-8"
                         )
@@ -512,7 +513,7 @@ def run_ocr_pipeline(
                         and merged_blocks[-1].get("text")
                     ):
                         text = block["text"]
-                        if text[:1] in ";,.)" or text[:1].islower():
+                        if block.get("_column_fill") and (text[:1] in ";,.)" or text[:1].islower()):
                             merged_blocks[-1]["text"] = (
                                 merged_blocks[-1].get("text", "") + " " + text
                             ).strip()
@@ -529,6 +530,8 @@ def run_ocr_pipeline(
                             and not b.get("text")
                         )
                     ]
+                for block in payload.get("blocks", []):
+                    block.pop("_column_fill", None)
 
             # Recompute page/tape metadata (ignore OCR header Page/Tape lines)
             header = payload.get("header", {})

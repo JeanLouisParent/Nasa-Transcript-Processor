@@ -245,7 +245,19 @@ class TextCorrector:
                 # Just whitespace/punctuation
                 corrected_tokens.append(token)
 
-        return "".join(corrected_tokens)
+        corrected = "".join(corrected_tokens)
+
+        # Enforce canonical header line after token correction.
+        if len(corrected) <= 90:
+            upper = corrected.upper().replace("0", "O")
+            if "VOICE" in upper and "TRANS" in upper:
+                target = "AIR-TO-GROUND VOICE TRANSCRIPTION"
+                norm_text = re.sub(r"[^A-Z]", "", upper)
+                norm_target = re.sub(r"[^A-Z]", "", target)
+                if difflib.SequenceMatcher(None, norm_text, norm_target).ratio() >= 0.6:
+                    return target
+
+        return corrected
 
     def process_blocks(self, blocks: list[dict]) -> list[dict]:
         """

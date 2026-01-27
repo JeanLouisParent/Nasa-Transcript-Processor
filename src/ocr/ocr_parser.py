@@ -49,6 +49,9 @@ TRANSITION_KEYWORDS = (
     "SILENCE",
 )
 LINE_TAG_RE = re.compile(r"^\[(HEADER|FOOTER|ANNOTATION|COMM|META)\]\s*", re.IGNORECASE)
+LUNAR_REV_RE = re.compile(r"^--\s*(BEGIN|END)\s+LUNAR\s+REV\s+(\d+)\b", re.IGNORECASE)
+REST_PERIOD_RE = re.compile(r"\bREST\s+PERIOD\b", re.IGNORECASE)
+NO_COMM_RE = re.compile(r"\bNO\s+COMMUNICATIONS?\b", re.IGNORECASE)
 
 
 def normalize_whitespace(text: str) -> str:
@@ -81,7 +84,14 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] | None 
     """
     Parse plain OCR output into structured rows.
     """
-    raw_lines = [line.strip() for line in text.splitlines() if line.strip()]
+    raw_lines = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # Normalize fractional seconds like "03 10 47 .1" -> "03 10 47 11"
+        line = re.sub(r"\b(\d{2}\s+\d{2}\s+\d{2})\s+\.(\d)\b", r"\1 1\2", line)
+        raw_lines.append(line)
     lines = []
     for raw in raw_lines:
         tag_match = LINE_TAG_RE.match(raw)
@@ -534,6 +544,20 @@ def fuzzy_find(text: str, keyword: str, threshold: float = 0.6) -> bool:
     return False
 
 
+def is_transcription_header(text: str) -> bool:
+    if not text:
+        return False
+    text = text.strip()
+    if len(text) > 90:
+        return False
+    upper = text.upper().replace("0", "O")
+    if "VOICE" not in upper or "TRANS" not in upper:
+        return False
+    norm_text = re.sub(r"[^A-Z]", "", upper)
+    target = "AIRTOGROUNDVOICETRANSCRIPTION"
+    return difflib.SequenceMatcher(None, norm_text, target).ratio() >= 0.6
+
+
 def extract_header_metadata(lines: list[str], page_num: int, page_offset: int = 0) -> dict:
     result = {"page": page_num + 1 + page_offset, "tape": None, "is_apollo_title": False}
     first_ts_idx = next(
@@ -630,6 +654,27 @@ def build_page_json(
 
     merged_blocks = []
     for block in blocks:
+        if block.get("type") == "comm" and block.get("text"):
+            text_value = block["text"].strip()
+            match = LUNAR_REV_RE.match(text_value)
+            if match:
+                action = match.group(1).upper()
+                rev_num = match.group(2)
+                block["text"] = f"{action} LUNAR REV {rev_num}"
+                ts = block.get("timestamp", "")
+                if ts:
+                    parts = ts.split()
+                    if len(parts) == 4:
+                        parts[-1] = "--"
+                        block["timestamp"] = " ".join(parts)
+                    elif len(parts) == 3:
+                        block["timestamp"] = " ".join(parts + ["--"])
+                block["type"] = "meta"
+                block["meta_type"] = "lunar_rev"
+                block.pop("speaker", None)
+                block.pop("location", None)
+
+    for block in blocks:
         if (
             block.get("type") == "continuation"
             and block.get("text")
@@ -664,8 +709,25 @@ def build_page_json(
         merged_blocks.append(block)
     blocks = merged_blocks
 
+    # Canonicalize REST PERIOD pages
+    rest_period_found = False
+    for block in blocks:
+        text_val = block.get("text", "")
+        if text_val and REST_PERIOD_RE.search(text_val) and NO_COMM_RE.search(text_val):
+            block["type"] = "meta"
+            block["meta_type"] = "rest_period"
+            block["text"] = "REST PERIOD - NO COMMUNICATIONS"
+            rest_period_found = True
+        if text_val and is_transcription_header(text_val):
+            block["type"] = "meta"
+            block["meta_type"] = "transcript_header"
+            block["text"] = "AIR-TO-GROUND VOICE TRANSCRIPTION"
+
     if blocks and blocks[0]["type"] == "continuation" and previous_block_type in ("comm", "continuation"):
         blocks[0]["continuation_from_prev"] = True
+
+    if rest_period_found or any(b.get("meta_type") == "rest_period" for b in blocks):
+        header_info["page_type"] = "rest_period"
 
     # Final cleanup of footers and locations on merged text
     for block in blocks:

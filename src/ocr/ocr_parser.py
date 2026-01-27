@@ -613,6 +613,16 @@ def build_page_json(
             elif block.get("text"):
                 blocks[-1]["text"] = block["text"]
             continue
+        if (
+            block_type == "meta"
+            and block.get("text")
+            and blocks
+            and blocks[-1].get("type") == "meta"
+            and not blocks[-1].get("meta_type")
+            and not block.get("meta_type")
+        ):
+            blocks[-1]["text"] = (blocks[-1].get("text", "") + " " + block["text"]).strip()
+            continue
         if blocks and block_type == "continuation" and blocks[-1]["type"] == "continuation":
             blocks[-1]["text"] = (blocks[-1]["text"] + " " + block["text"]).strip()
         else:

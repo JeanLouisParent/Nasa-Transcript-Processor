@@ -120,6 +120,12 @@ start is detected.
    - `***` lines: Converted to canonical "Three asterisks..." footer.
    - Page/Tape headers (`Page`, `Play`, `Lay`, `Tape`) are ignored when they
      appear as standalone header-only lines.
+   - `REST PERIOD - NO COMMUNICATIONS`: Tagged as `meta_type: rest_period`,
+     and the page header gets `page_type: rest_period`.
+   - `AIR-TO-GROUND VOICE TRANSCRIPTION`: Tagged as `meta_type: transcript_header`
+     (fuzzy-canonicalized).
+   - `BEGIN/END LUNAR REV N`: Tagged as `meta_type: lunar_rev` with
+     timestamp formatted as `DD HH MM --`.
    - `END OF TAPE`: Marked as `meta_type="end_of_tape"`, triggers Tape
      counter increment.
    - `REST PERIOD`, `LOS`, `AOS`: Marked as `meta` type.

@@ -219,3 +219,18 @@ crop** based on the configuration parameter `col2_end`.
      is a continuation found via this pass, check if the continuation starts
      with lowercase/punctuation. If so, merge into the previous block to
      reform the sentence structure.
+
+---
+
+## Stage 6: Global Export
+
+At the end of `process`, the pipeline generates:
+
+- `output/<stem>/<stem>_merged.json` — merged JSON for all pages.
+- `output/<stem>/<stem>_transcript.txt` — formatted transcript text.
+
+You can also run the export manually:
+
+```
+python main.py export <PDF_NAME>
+```

@@ -1,8 +1,8 @@
 # NASA Transcript Processing Pipeline
 
 Pipeline for processing scanned NASA mission transcripts. Performs
-page-by-page image enhancement and OCR via LM Studio with an optional
-AI-assisted classification pass.
+page-by-page image enhancement and OCR via LM Studio, then parses the
+plain OCR into structured blocks.
 
 ## Features
 
@@ -16,11 +16,13 @@ AI-assisted classification pass.
 - **Global Timestamp Indexing**: Maintains chronological integrity across
   the entire document, fixing OCR noise and duplicate timecodes.
 - **LM Studio OCR**: High-performance AI OCR integration (OpenAI-compatible).
-- **OCR Output**: Plain OCR output with optional column-aware mode.
+- **Multi-pass OCR**: Primary + raw + faint fallback passes with merge logic.
+- **OCR Output**: Plain OCR output with optional column-aware fill pass.
 - **Right-Column OCR Fill**: Optional second OCR pass for the text column
   to fill missing dialogue.
 - **Header/Tape Reconstruction**: Ignores OCR page/tape lines and
   recomputes metadata consistently.
+- **Global Export**: Merged JSON + formatted TXT transcript per PDF.
 - **Parallel processing**: Multi-threaded image processing with progress
   tracking.
 
@@ -94,6 +96,15 @@ python main.py process AS11_TEC.PDF --ocr-prompt column
 python main.py process AS11_TEC.PDF --pages 1-5 --timing
 ```
 
+### Exporting a Merged Transcript
+
+The pipeline auto-generates a merged JSON and formatted TXT at the end of
+`process`. You can also run the export manually:
+
+```bash
+python main.py export AS11_TEC.PDF
+```
+
 ### Checking PDF Info
 
 To verify the number of pages and basic metadata before processing:
@@ -101,6 +112,28 @@ To verify the number of pages and basic metadata before processing:
 ```bash
 python main.py info AS11_TEC.PDF
 ```
+
+---
+
+## CLI Arguments
+
+### `process`
+
+- `-p, --pages TEXT` — page range (e.g. `1-50`, `10,12,14-16`)
+- `--clean` — delete previous output before running
+- `--no-ocr` — skip OCR stage (image processing only)
+- `--ocr-url TEXT` — override LM Studio URL
+- `--ocr-prompt [plain|column]` — OCR prompt mode
+- `--timing / --no-timing` — show per-page timing breakdowns
+- `-v, --verbose` — verbose logs to `pipeline.log`
+
+### `export`
+
+- `pdf_name` — source PDF filename in `input/`
+
+### `info`
+
+- `pdf_name` — source PDF filename in `input/`
 
 ---
 
@@ -112,6 +145,7 @@ python main.py info AS11_TEC.PDF
 # I/O
 input_dir = "input"
 output_dir = "output"
+state_dir = "state"
 
 # OCR Settings
 ocr_url = "http://localhost:1234"
@@ -120,6 +154,8 @@ ocr_timeout = 120
 ocr_max_tokens = 4096
 ocr_prompt = "plain" # "plain" or "column"
 ocr_text_column_pass = true
+ocr_dual_pass = true
+ocr_faint_pass = true
 
 # Processing Settings
 dpi = 300
@@ -145,6 +181,16 @@ header_ratio = 0.10
 file_name = "AS11_TEC.PDF"
 page_offset = -2
 ```
+
+## Outputs
+
+After a run, outputs are stored under `output/<stem>/`:
+
+- `pages/Page_NNN/` — per-page JSON + OCR artifacts.
+- `<stem>_merged.json` — merged document JSON.
+- `<stem>_transcript.txt` — formatted transcript text.
+
+The timestamp index is stored in `state/<stem>_timestamps_index.json`.
 
 ## Prompts
 

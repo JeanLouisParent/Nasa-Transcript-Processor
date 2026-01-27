@@ -14,6 +14,7 @@ import tomllib
 class GlobalConfig:
     input_dir: Path = field(default_factory=lambda: Path("input"))
     output_dir: Path = field(default_factory=lambda: Path("output"))
+    state_dir: Path = field(default_factory=lambda: Path("state"))
     ocr_url: str = "http://localhost:1234"
     ocr_model: str = "qwen/qwen3-vl-4b"
     ocr_prompt: str = "plain"
@@ -33,6 +34,7 @@ def load_global_config(config_path: Path) -> GlobalConfig:
     # Extract known global fields
     input_dir = Path(data.get("input_dir", "input"))
     output_dir = Path(data.get("output_dir", "output"))
+    state_dir = Path(data.get("state_dir", "state"))
     ocr_url = str(data.get("ocr_url", "http://localhost:1234"))
     ocr_model = str(data.get("ocr_model", "qwen3-vl-4b"))
     ocr_prompt = str(data.get("ocr_prompt", "plain")).lower()
@@ -52,6 +54,7 @@ def load_global_config(config_path: Path) -> GlobalConfig:
     return GlobalConfig(
         input_dir=input_dir,
         output_dir=output_dir,
+        state_dir=state_dir,
         ocr_url=ocr_url,
         ocr_model=ocr_model,
         ocr_prompt=ocr_prompt,

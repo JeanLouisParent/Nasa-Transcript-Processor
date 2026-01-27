@@ -241,7 +241,7 @@ If `ocr_text_column_pass = true`:
 
 To handle the sequential processing constraint while processing pages in
 parallel batches, the system uses a persistent on-disk index
-(`timestamps_index.json`).
+(`state/<stem>_timestamps_index.json`).
 
 - **Structure**: `{ page_num: [ts1, ts2, ... tsN] }`.
 - **Usage**: Requests `get_last_timestamp_before(N)`.

@@ -51,7 +51,7 @@ class OutputGenerator:
 
     def get_page_dir(self, page_num: int) -> Path:
         """Get the output directory for a specific page."""
-        page_dir = self.output_dir / f"Page_{page_num + 1:03d}"
+        page_dir = self.output_dir / "pages" / f"Page_{page_num + 1:03d}"
         page_dir.mkdir(parents=True, exist_ok=True)
         return page_dir
 

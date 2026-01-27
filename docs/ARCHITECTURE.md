@@ -17,9 +17,9 @@ flowchart TD
 
     subgraph "Data Artifacts"
     CFG --> TOML[config/*.toml]
-    IP --> ASSETS[output/.../assets/]
-    OP --> JSON[output/.../Page_NN.json]
-    OP --> IDX[timestamps_index.json]
+    IP --> ASSETS[output/.../pages/.../assets/]
+    OP --> JSON[output/.../pages/Page_NN.json]
+    OP --> IDX[state/..._timestamps_index.json]
     end
 ```
 
@@ -45,7 +45,7 @@ class PageResult:
 
 ### 2. Output JSON Schema
 
-The final structure written to `output/<mission>/Page_NNN/Page_NNN.json`.
+The final structure written to `output/<mission>/pages/Page_NNN/Page_NNN.json`.
 
 ```json
 {
@@ -78,28 +78,33 @@ The pipeline generates a structured output directory for each mission.
 
 ```text
 output/
-└── AS11_TEC/                       # Mission Stem Name
-    ├── timestamps_index.json       # Global Index (Chronological continuity)
-    ├── Page_001/                   # 1-based Page Directory
-    │   ├── AS11_TEC_page_0001.json # FINAL structured transcript
-    │   ├── assets/
-    │   │   ├── *_raw.pdf           # Single page extracted from source
-    │   │   ├── *_enhanced.png      # Processed image sent to OCR
-    │   │   ├── *_raw.png           # Direct PDF render (no enhancement)
-    │   │   └── *_faint.png         # Contrast-boosted fallback render
-    │   └── ocr/
-    │       ├── *_ocr_raw.txt       # Raw output from Primary OCR pass
-    │       ├── *_ocr_raw_fallback.txt   # Raw output from Raw OCR pass
-    │       ├── *_ocr_faint_fallback.txt # Raw output from Faint OCR pass
-    │       └── *_ocr_textcol.txt   # Raw output from Right-Column pass
-    ├── Page_002/
-    │   └── ...
-    └── ...
+└── AS11_TEC/                         # Mission Stem Name
+    ├── AS11_TEC_merged.json          # Global merged JSON
+    ├── AS11_TEC_transcript.txt       # Formatted transcript text
+    └── pages/
+        ├── Page_001/                 # 1-based Page Directory
+        │   ├── AS11_TEC_page_0001.json # FINAL structured transcript
+        │   ├── assets/
+        │   │   ├── *_raw.pdf         # Single page extracted from source
+        │   │   ├── *_enhanced.png    # Processed image sent to OCR
+        │   │   ├── *_raw.png         # Direct PDF render (no enhancement)
+        │   │   └── *_faint.png       # Contrast-boosted fallback render
+        │   └── ocr/
+        │       ├── *_ocr_raw.txt       # Raw output from Primary OCR pass
+        │       ├── *_ocr_raw_fallback.txt   # Raw output from Raw OCR pass
+        │       ├── *_ocr_faint_fallback.txt # Raw output from Faint OCR pass
+        │       └── *_ocr_textcol.txt   # Raw output from Right-Column pass
+        ├── Page_002/
+        │   └── ...
+        └── ...
+
+state/
+└── AS11_TEC_timestamps_index.json     # Global Index (Chronological continuity)
 ```
 
 ### File Details
 
-- **`timestamps_index.json`**:
+- **`state/<stem>_timestamps_index.json`**:
   - **Role**: Critical for the sequential processing stage.
   - **Content**: A mapping of `{ page_num: [list_of_timestamps] }`.
   - **Usage**: Allows the parser to look back at previous pages (even across

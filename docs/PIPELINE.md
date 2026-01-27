@@ -128,7 +128,7 @@ thinning text strokes.
 
 **Module**: `src.utils.output_generator`
 
-1. **Asset Storage**: Creates `output/<stem>/Page_NNN/assets/`.
+1. **Asset Storage**: Creates `output/<stem>/pages/Page_NNN/assets/`.
 2. **Image Write**: Saves the processed image as PNG.
    - Uses `cv2.IMWRITE_PNG_COMPRESSION = 6` (Balance of speed/size).
    - Filename: `*_enhanced.png`.

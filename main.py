@@ -47,6 +47,7 @@ from src.ocr.ocr_parser import (
 from src.processors.page_extractor import get_pdf_info
 from src.utils.console import PipelineConsole
 from src.utils.console import console as rich_console
+from src.utils.merge_export import write_global_outputs
 
 # Initialize console manager
 console = PipelineConsole()
@@ -323,7 +324,8 @@ def run_ocr_pipeline(
     console.start_ocr(total_to_ocr)
 
     # Load Global Timestamp Index
-    index_path = config.output_dir / pdf_path.stem / "timestamps_index.json"
+    index_path = config.state_dir / f"{pdf_path.stem}_timestamps_index.json"
+    index_path.parent.mkdir(parents=True, exist_ok=True)
     ts_index = GlobalTimestampIndex.load(index_path)
 
     if mission_overrides is None:
@@ -615,6 +617,19 @@ def cli():
 
 @cli.command()
 @click.argument("pdf_name")
+def export(pdf_name: str):
+    """Merge per-page JSON into a global JSON and formatted TXT."""
+    setup_logging()
+    global_cfg = load_global_config(Path("config/defaults.toml"))
+    pdf_path = resolve_pdf_path(pdf_name, global_cfg.input_dir)
+    if not pdf_path.exists():
+        print(f"Error: PDF not found: {pdf_path}")
+        raise SystemExit(1)
+
+    json_path, txt_path = write_global_outputs(global_cfg.output_dir, pdf_path.stem)
+    print(f"Wrote global JSON: {json_path}")
+    print(f"Wrote transcript TXT: {txt_path}")
+
 @click.option("-p", "--pages", help="Page range (e.g., '1-50', '10,12-14')")
 @click.option("--clean", is_flag=True, help="Remove existing output first")
 @click.option("--no-ocr", is_flag=True, help="Skip OCR step")
@@ -750,6 +765,11 @@ def process(
                     f"postprocess={ocr_t.get('postprocess_s', 0):.3f}s "
                     f"ocr_total={ocr_t.get('ocr_total_s', 0):.3f}s"
                 )
+
+    # Always refresh global outputs at the end of a process run.
+    merged_json, transcript_txt = write_global_outputs(global_cfg.output_dir, pdf_path.stem)
+    print(f"Wrote global JSON: {merged_json}")
+    print(f"Wrote transcript TXT: {transcript_txt}")
 
     console.finish()
 

@@ -16,10 +16,10 @@ TIMESTAMP_EMBEDDED_RE = re.compile(rf"\s+({TS_CHARS}{{2}}(?:\s+{TS_CHARS}{{2}}){
 REV_EMBEDDED_RE = re.compile(r"(\([RE][FV]\s+\d+\))", re.IGNORECASE)
 
 # Speaker patterns
-SPEAKER_TOKEN_RE = re.compile(r"^[A-Z0-9]{1,8}(?:/[A-Z0-9]{1,8})?$")
+SPEAKER_TOKEN_RE = re.compile(r"^[A-Z0-9]{1,8}\??(?:/[A-Z0-9]{1,8})?\??$")
 SPEAKER_LINE_RE = re.compile(
-    r"^[A-Z0-9]{1,8}(?:/[A-Z0-9]{1,8})?"
-    r"(?:\s+[A-Z0-9]{1,8}(?:/[A-Z0-9]{1,8})?){0,2}"
+    r"^[A-Z0-9]{1,8}\??(?:/[A-Z0-9]{1,8})?\??"
+    r"(?:\s+[A-Z0-9]{1,8}\??(?:/[A-Z0-9]{1,8})?\??){0,2}"
     r"(?:\s*\([A-Z0-9]+\))?$"
 )
 SPEAKER_PAREN_RE = re.compile(r"^\(([A-Z0-9]+)\)$")

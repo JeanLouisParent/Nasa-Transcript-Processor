@@ -23,6 +23,35 @@ from .utils import fuzzy_find
 from .preprocessor import preprocess_lines
 
 
+def header_keyword_match(line: str) -> bool:
+    upper = line.upper()
+    if re.search(r"\bGOSS\b", upper):
+        return True
+    if re.search(r"\bNET\b", upper):
+        return True
+    if re.search(r"\bTAPE\b", upper):
+        return True
+    if re.search(r"\bPAGE\b", upper):
+        return True
+    if re.search(r"\bAPOLLO\b", upper):
+        return True
+    if "AIR-TO-GROUND" in upper or "AIR TO GROUND" in upper:
+        return True
+    return False
+
+
+def transition_keyword_match(line: str) -> bool:
+    upper = line.upper()
+    for kw in TRANSITION_KEYWORDS:
+        if len(kw) <= 3:
+            if re.search(rf"\\b{re.escape(kw)}\\b", upper):
+                return True
+        else:
+            if kw in upper:
+                return True
+    return False
+
+
 def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] | None = None) -> list[dict]:
     """
     Parse plain OCR output into structured rows.
@@ -89,7 +118,9 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] | None 
             if len(token) == 1:
                 break
             if SPEAKER_TOKEN_RE.match(token):
-                speaker_tokens.append(tokens.pop(0))
+                cleaned = token.rstrip("?")
+                speaker_tokens.append(cleaned)
+                tokens.pop(0)
                 continue
             break
         return " ".join(speaker_tokens), tokens
@@ -266,6 +297,11 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] | None 
                     timestamp_list_start_idx = timestamp_run_start_idx
                     timestamp_list_row_idx = timestamp_list_start_idx
             remainder = line[len(pending_ts) :].strip()
+            if remainder.startswith("+") and len(pending_ts.split()) == 3:
+                plus_match = re.match(r"^\+(\d)\b", remainder)
+                if plus_match:
+                    pending_ts = f"{pending_ts} 4{plus_match.group(1)}"
+                    remainder = remainder[plus_match.end():].strip()
             if remainder:
                 tokens = remainder.split()
                 if (
@@ -336,13 +372,13 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] | None 
                     row["text"] = (row.get("text", "") + " " + line).strip()
             continue
 
-        if forced_type is None:
+        if forced_type is None and not pending_ts:
             # Annotations
             is_header = (
                 not pending_ts
                 and first_ts_idx is not None
                 and idx <= first_ts_idx
-                and any(fuzzy_find(line, kw) for kw in HEADER_KEYWORDS)
+                and header_keyword_match(line)
             )
             is_footer = not pending_ts and (
                 "***" in line
@@ -358,11 +394,13 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] | None 
                 or (
                     mission_keywords
                     and not pending_ts
+                    and not has_lower
+                    and len(line.strip()) <= 30
                     and any(fuzzy_find(line, kw) for kw in mission_keywords)
                 )
             )
             is_end_of_tape = fuzzy_find(line, END_OF_TAPE_KEYWORD)
-            is_transition = any(fuzzy_find(line, kw) for kw in TRANSITION_KEYWORDS)
+            is_transition = transition_keyword_match(line)
 
             if is_header or is_footer or is_annotation or is_end_of_tape or is_transition:
                 flush_pending()

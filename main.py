@@ -10,6 +10,7 @@ Usage:
 """
 
 import json
+import difflib
 import re
 import shutil
 import sys
@@ -151,10 +152,12 @@ def merge_payloads(preferred: dict, fallback: dict) -> dict:
         return preferred
 
     preferred_texts = set()
+    preferred_text_list = []
     for block in preferred_blocks:
         text = block.get("text")
         if text:
             preferred_texts.add(normalize_text_for_match(text))
+            preferred_text_list.append(text)
 
     prev_ts_list = []
     prev_ts = None
@@ -177,6 +180,16 @@ def merge_payloads(preferred: dict, fallback: dict) -> dict:
         if not a_words and not b_words:
             return 0.0
         return len(a_words & b_words) / max(1, len(a_words | b_words))
+
+    def is_near_duplicate(text: str) -> bool:
+        if not text:
+            return False
+        norm = normalize_text_for_match(text)
+        for other in preferred_text_list:
+            ratio = difflib.SequenceMatcher(None, norm, normalize_text_for_match(other)).ratio()
+            if ratio >= 0.9:
+                return True
+        return False
 
     for idx, fallback_block in enumerate(fallback_blocks):
         fb_text = fallback_block.get("text", "")
@@ -218,6 +231,8 @@ def merge_payloads(preferred: dict, fallback: dict) -> dict:
             if not should_insert_continuation(fb_text):
                 continue
             if normalize_text_for_match(fb_text) in preferred_texts:
+                continue
+            if is_near_duplicate(fb_text):
                 continue
             prev_ts = prev_ts_list[idx]
             next_ts = next_ts_list[idx]

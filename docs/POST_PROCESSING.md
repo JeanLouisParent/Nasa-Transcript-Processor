@@ -46,9 +46,14 @@ flowchart TD
 
 ## 1. Block Parser
 
-**Module:** `src/ocr/ocr_parser.py`
+**Modules:** `src/ocr/parsing/`
 
-The parser transforms raw OCR lines into structured JSON blocks using a state machine with regex heuristics.
+The parser transforms raw OCR lines into structured JSON blocks using a state machine with regex heuristics. Implementation is split across specialized modules:
+
+- `patterns.py` — Regex patterns and constants
+- `preprocessor.py` — Line splitting and cleaning
+- `state_machine.py` — Core parsing logic
+- `block_builder.py` — JSON construction with corrections
 
 ### 1.1 Pre-processing: Line Splitting
 

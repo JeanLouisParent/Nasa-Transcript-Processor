@@ -173,7 +173,7 @@ flowchart TB
 
     subgraph OCRMod ["OCR (src/ocr/)"]
         CLIENT[ocr_client.py<br/><small>LM Studio API</small>]
-        PARSER[ocr_parser.py<br/><small>State machine</small>]
+        PARSER[parsing/<br/><small>Parser modules</small>]
     end
 
     subgraph Correctors ["Correctors (src/correctors/)"]
@@ -207,7 +207,10 @@ flowchart TB
 | `page_extractor.py` | Thread-safe PDF rendering via PyMuPDF |
 | `image_processor.py` | Deskew, normalization, enhancement (stateless) |
 | `ocr_client.py` | HTTP requests to LM Studio, Base64 encoding |
-| `ocr_parser.py` | Line classification state machine |
+| `parsing/patterns.py` | Regex patterns and constants |
+| `parsing/preprocessor.py` | Line splitting, embedded component detection |
+| `parsing/state_machine.py` | Line classification state machine |
+| `parsing/block_builder.py` | JSON construction with corrections |
 | `timestamp_corrector.py` | Monotonic time enforcement |
 | `text_corrector.py` | Lexicon-based spelling correction |
 | `speaker_corrector.py` | Callsign normalization |
@@ -318,7 +321,13 @@ ocr_transcript_v2/
 │   │   └── image_processor.py
 │   ├── ocr/
 │   │   ├── ocr_client.py
-│   │   └── ocr_parser.py
+│   │   ├── ocr_parser.py
+│   │   └── parsing/
+│   │       ├── patterns.py
+│   │       ├── utils.py
+│   │       ├── preprocessor.py
+│   │       ├── state_machine.py
+│   │       └── block_builder.py
 │   ├── correctors/
 │   │   ├── speaker_corrector.py
 │   │   ├── text_corrector.py

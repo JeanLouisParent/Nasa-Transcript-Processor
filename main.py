@@ -35,14 +35,13 @@ from src.ocr.ocr_client import (
     TEXT_COLUMN_OCR_PROMPT,
     LMStudioOCRClient,
 )
-from src.ocr.ocr_parser import (
+from src.ocr.ocr_parser import build_page_json, parse_ocr_text
+from src.ocr.parsing.patterns import (
     HEADER_PAGE_ONLY_RE,
     HEADER_TAPE_ONLY_RE,
     HEADER_TAPE_PAGE_ONLY_RE,
     LOCATION_PAREN_RE,
     SPEAKER_LINE_RE,
-    build_page_json,
-    parse_ocr_text,
 )
 from src.processors.page_extractor import get_pdf_info
 from src.utils.console import PipelineConsole

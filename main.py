@@ -635,9 +635,10 @@ def export(pdf_name: str):
         print(f"Error: PDF not found: {pdf_path}")
         raise SystemExit(1)
 
-    json_path, txt_path = write_global_outputs(global_cfg.output_dir, pdf_path.stem)
+    json_path, txt_path, md_path = write_global_outputs(global_cfg.output_dir, pdf_path.stem)
     print(f"Wrote global JSON: {json_path}")
     print(f"Wrote transcript TXT: {txt_path}")
+    print(f"Wrote transcript MD: {md_path}")
 
 @cli.command()
 @click.argument("pdf_name")
@@ -778,9 +779,10 @@ def process(
                 )
 
     # Always refresh global outputs at the end of a process run.
-    merged_json, transcript_txt = write_global_outputs(global_cfg.output_dir, pdf_path.stem)
+    merged_json, transcript_txt, transcript_md = write_global_outputs(global_cfg.output_dir, pdf_path.stem)
     print(f"Wrote global JSON: {merged_json}")
     print(f"Wrote transcript TXT: {transcript_txt}")
+    print(f"Wrote transcript MD: {transcript_md}")
 
     console.finish()
 

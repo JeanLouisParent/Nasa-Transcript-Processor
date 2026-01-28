@@ -125,13 +125,87 @@ def render_transcript_text(pages: list[PageBundle]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_global_outputs(output_dir: Path, pdf_stem: str) -> tuple[Path, Path]:
+def render_transcript_markdown(pages: list[PageBundle], pdf_stem: str) -> str:
+    """Render transcript as Markdown with tables."""
+    lines: list[str] = []
+
+    # Title
+    lines.append(f"# {pdf_stem} Transcript\n")
+    lines.append("---\n")
+
+    for page in pages:
+        header = page.header or {}
+        page_label = header.get("page") or page.page_num or "?"
+        tape = header.get("tape") or ""
+        page_type = header.get("page_type")
+
+        # Page header
+        tape_str = f" · Tape {tape}" if tape else ""
+        lines.append(f"## Page {page_label}{tape_str}\n")
+
+        if page_type == "rest_period":
+            lines.append("_Rest period - No communications_\n")
+            continue
+
+        # Collect comm blocks for table
+        comm_blocks = []
+        meta_blocks = []
+
+        for block in page.blocks:
+            btype = block.get("type")
+            if btype == "comm":
+                comm_blocks.append(block)
+            elif btype in ("meta", "annotation", "header", "footer"):
+                meta_blocks.append(block)
+
+        # Render meta blocks first
+        for block in meta_blocks:
+            text = (block.get("text") or "").strip()
+            if text:
+                meta_type = block.get("meta_type")
+                if meta_type == "end_of_tape":
+                    lines.append(f"**{text}**\n")
+                elif meta_type:
+                    lines.append(f"_{text}_\n")
+                else:
+                    lines.append(f"> {text}\n")
+
+        # Render comm table
+        if comm_blocks:
+            lines.append("| Time | Speaker | Location | Dialogue |")
+            lines.append("|:-----|:--------|:---------|:---------|")
+
+            for block in comm_blocks:
+                ts = block.get("timestamp", "").replace(" ", ":") or "—"
+                speaker = block.get("speaker", "") or "—"
+                location = block.get("location", "") or ""
+                text = (block.get("text") or "").strip()
+
+                # Escape pipe characters in text
+                text = text.replace("|", "\\|")
+
+                loc_cell = location if location else ""
+                lines.append(f"| {ts} | {speaker} | {loc_cell} | {text} |")
+
+            lines.append("")
+
+        lines.append("---\n")
+
+    return "\n".join(lines)
+
+
+def write_global_outputs(output_dir: Path, pdf_stem: str) -> tuple[Path, Path, Path]:
     pages = collect_page_jsons(output_dir, pdf_stem)
     global_json = build_global_json(pdf_stem, pages)
     output_root = output_dir / pdf_stem
     output_root.mkdir(parents=True, exist_ok=True)
+
     json_path = output_root / f"{pdf_stem}_merged.json"
     txt_path = output_root / f"{pdf_stem}_transcript.txt"
+    md_path = output_root / f"{pdf_stem}_transcript.md"
+
     json_path.write_text(json.dumps(global_json, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     txt_path.write_text(render_transcript_text(pages), encoding="utf-8")
-    return json_path, txt_path
+    md_path.write_text(render_transcript_markdown(pages, pdf_stem), encoding="utf-8")
+
+    return json_path, txt_path, md_path

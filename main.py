@@ -354,6 +354,7 @@ def run_ocr_pipeline(
     previous_block_type = None
     tape_x = 1
     tape_y = 1
+    tape_started = False
     for pr in page_results:
         if not pr.success or not pr.output:
             continue
@@ -535,8 +536,12 @@ def run_ocr_pipeline(
 
             # Recompute page/tape metadata (ignore OCR header Page/Tape lines)
             header = payload.get("header", {})
-            header["page"] = page_num + 1 + page_offset
-            header["tape"] = f"{tape_x}/{tape_y}"
+            logical_page = page_num + 1 + page_offset
+            header["page"] = logical_page
+            if not tape_started and logical_page >= 1:
+                tape_started = True
+                tape_y = 1
+            header["tape"] = f"{tape_x}/{tape_y}" if tape_started else None
             payload["header"] = header
 
             # Update index
@@ -594,10 +599,12 @@ def run_ocr_pipeline(
                 for b in payload.get("blocks", [])
             )
             if end_of_tape:
-                tape_x += 1
-                tape_y = 1
+                if tape_started:
+                    tape_x += 1
+                    tape_y = 1
             else:
-                tape_y += 1
+                if tape_started:
+                    tape_y += 1
 
             # Small pause to let the OCR server breathe/cleanup VRAM
             time.sleep(0.5)

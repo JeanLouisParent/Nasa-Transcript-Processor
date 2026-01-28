@@ -99,7 +99,7 @@ python main.py export AS11_TEC.PDF
 ```
 output/
 └── AS11_TEC/
-    ├── AS11_TEC_merged.json      # Complete structured transcript
+    ├── AS11_TEC_merged.json      # Complete structured transcript (pages keyed as "Page 001")
     ├── AS11_TEC_transcript.txt   # Human-readable transcript
     └── pages/
         └── Page_001/

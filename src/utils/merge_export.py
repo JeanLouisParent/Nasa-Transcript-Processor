@@ -45,17 +45,19 @@ def collect_page_jsons(output_dir: Path, pdf_stem: str) -> list[PageBundle]:
 
 
 def build_global_json(pdf_stem: str, pages: list[PageBundle]) -> dict:
+    page_map: dict[str, dict] = {}
+    for page in pages:
+        page_num = page.page_num
+        if not page_num:
+            page_num = int(page.header.get("page", 0) or 0)
+        key = f"Page {page_num:03d}" if page_num else f"Page {len(page_map) + 1:03d}"
+        page_map[key] = {
+            "header": page.header,
+            "blocks": page.blocks,
+        }
     return {
         "document": pdf_stem,
-        "page_count": len(pages),
-        "pages": [
-            {
-                "header": page.header,
-                "blocks": page.blocks,
-                "source": str(page.source_path),
-            }
-            for page in pages
-        ],
+        "pages": page_map,
     }
 
 

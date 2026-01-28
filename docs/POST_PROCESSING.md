@@ -229,7 +229,7 @@ The system ignores OCR-read page/tape numbers. Instead:
 | Field | Calculation |
 |:------|:------------|
 | **Page** | Logical page index + mission offset |
-| **Tape** | Starts at `1/1`. Y (reel) increments each page. X (tape) increments on `END OF TAPE` |
+| **Tape** | Starts at `1/1` when logical page reaches 1 (after `page_offset`). Y (reel) increments each page. X (tape) increments on `END OF TAPE` |
 
 ### 5.2 Smart Stitching
 

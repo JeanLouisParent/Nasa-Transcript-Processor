@@ -256,6 +256,10 @@ class TextCorrector:
                 norm_target = re.sub(r"[^A-Z]", "", target)
                 if difflib.SequenceMatcher(None, norm_text, norm_target).ratio() >= 0.6:
                     return target
+            if "1" in upper and len(upper) <= 25:
+                norm_text = re.sub(r"[^A-Z0-9]", "", upper)
+                if difflib.SequenceMatcher(None, norm_text, "GOSSNET1").ratio() >= 0.6:
+                    return "(GOSS NET 1)"
 
         return corrected
 

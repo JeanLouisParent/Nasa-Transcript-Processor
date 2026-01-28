@@ -49,3 +49,4 @@ mission_keywords = [
 "\\bre\\s+id\\b" = "read"
 "(?i)air[-\\s]?two[-\\s]?ground voice transposition" = "AIR-TO-GROUND VOICE TRANSCRIPTION"
 "(?i)air[-\\s]?to[-\\s]?ground voice transposition" = "AIR-TO-GROUND VOICE TRANSCRIPTION"
+"(?i)\\(\\s*go(?:ss|s|st)\\s*net\\s*1\\s*\\)" = "(GOSS NET 1)"

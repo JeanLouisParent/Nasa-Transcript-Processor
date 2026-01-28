@@ -38,7 +38,10 @@ def collect_page_jsons(output_dir: Path, pdf_stem: str) -> list[PageBundle]:
             continue
         header = data.get("header", {})
         blocks = data.get("blocks", [])
-        page_num = int(header.get("page", 0)) if str(header.get("page", "")).isdigit() else 0
+        try:
+            page_num = int(header.get("page", 0))
+        except (TypeError, ValueError):
+            page_num = 0
         bundles.append(PageBundle(page_num=page_num, header=header, blocks=blocks, source_path=json_path))
     bundles.sort(key=lambda b: (b.page_num, b.source_path.name))
     return bundles
@@ -46,13 +49,37 @@ def collect_page_jsons(output_dir: Path, pdf_stem: str) -> list[PageBundle]:
 
 def build_global_json(pdf_stem: str, pages: list[PageBundle]) -> dict:
     page_map: dict[str, dict] = {}
+    tape_x = 1
+    tape_y = 1
+    tape_started = False
     for page in pages:
         page_num = page.page_num
-        if not page_num:
-            page_num = int(page.header.get("page", 0) or 0)
-        key = f"Page {page_num:03d}" if page_num else f"Page {len(page_map) + 1:03d}"
+        header = dict(page.header or {})
+        logical_page = header.get("page", page_num)
+        if not tape_started and isinstance(logical_page, int) and logical_page >= 1:
+            tape_started = True
+            tape_y = 1
+        if tape_started:
+            header["tape"] = f"{tape_x}/{tape_y}"
+        else:
+            header["tape"] = None
+
+        end_of_tape = any(
+            (b.get("meta_type") == "end_of_tape")
+            or ("END OF TAPE" in (b.get("text") or "").upper())
+            for b in page.blocks
+        )
+        rest_period = header.get("page_type") == "rest_period"
+        if tape_started:
+            if end_of_tape or rest_period:
+                tape_x += 1
+                tape_y = 1
+            else:
+                tape_y += 1
+
+        key = f"Page {page_num:03d}"
         page_map[key] = {
-            "header": page.header,
+            "header": header,
             "blocks": page.blocks,
         }
     return {

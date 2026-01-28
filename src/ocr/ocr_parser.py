@@ -52,6 +52,7 @@ LINE_TAG_RE = re.compile(r"^\[(HEADER|FOOTER|ANNOTATION|COMM|META)\]\s*", re.IGN
 LUNAR_REV_RE = re.compile(r"^--\s*(BEGIN|END)\s+LUNAR\s+REV\s+(\d+)\b", re.IGNORECASE)
 REST_PERIOD_RE = re.compile(r"\bREST\s+PERIOD\b", re.IGNORECASE)
 NO_COMM_RE = re.compile(r"\bNO\s+COMMUNICATIONS?\b", re.IGNORECASE)
+GOSS_NET_RE = re.compile(r"^\(?\s*GOSS\s+NET\s+1\s*\)?$", re.IGNORECASE)
 
 
 def normalize_whitespace(text: str) -> str:
@@ -630,6 +631,8 @@ def build_page_json(
                 block["meta_type"] = "end_of_tape"
             if block_type == "footer" and row["text"].lstrip().startswith("***"):
                 block["text"] = "*** Three asterisks denote clipping of words and phrases."
+            if block.get("text") and GOSS_NET_RE.match(block["text"]) and block_type in ("continuation", "meta", "annotation"):
+                continue
 
         if block_type == "continuation" and blocks:
             if blocks[-1].get("text") and block.get("text"):
@@ -759,4 +762,8 @@ def build_page_json(
     lexicon_path = Path("assets/lexicon/apollo11_lexicon.json")
     if lexicon_path.exists():
         blocks = TextCorrector(lexicon_path, text_replacements, mission_keywords).process_blocks(blocks)
+        blocks = [
+            b for b in blocks
+            if not (b.get("text") and GOSS_NET_RE.match(str(b.get("text"))))
+        ]
     return {"header": header_info, "blocks": blocks}

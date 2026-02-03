@@ -30,6 +30,9 @@ from src.config.mission_config import load_mission_config
 from src.core.config import PipelineConfig
 from src.core.pipeline import PageResult, TranscriptPipeline
 from src.correctors.timestamp_index import GlobalTimestampIndex
+from src.correctors.speaker_corrector import SpeakerCorrector
+from src.correctors.text_corrector import TextCorrector
+from src.correctors.timestamp_corrector import TimestampCorrector
 from src.ocr.ocr_client import (
     COLUMN_OCR_PROMPT,
     PLAIN_OCR_PROMPT,
@@ -37,6 +40,13 @@ from src.ocr.ocr_client import (
     LMStudioOCRClient,
 )
 from src.ocr.ocr_parser import build_page_json, parse_ocr_text
+from src.ocr.parsing.block_builder import (
+    split_embedded_timestamp_blocks,
+    merge_duplicate_comm_timestamps,
+    merge_nearby_duplicate_timestamps,
+    remove_repeated_phrases,
+)
+from src.ocr.parsing.patterns import GOSS_NET_RE
 from src.ocr.parsing.patterns import (
     HEADER_PAGE_ONLY_RE,
     HEADER_TAPE_ONLY_RE,
@@ -654,6 +664,93 @@ def export(pdf_name: str):
     print(f"Wrote global JSON: {json_path}")
     print(f"Wrote transcript TXT: {txt_path}")
     print(f"Wrote transcript MD: {md_path}")
+
+
+@cli.command("postprocess")
+@click.argument("pdf_name")
+def postprocess_json(pdf_name: str):
+    """Post-process existing per-page JSON without rerunning OCR."""
+    setup_logging()
+    global_cfg = load_global_config(Path("config/defaults.toml"))
+    pdf_path = resolve_pdf_path(pdf_name, global_cfg.input_dir)
+    if not pdf_path.exists():
+        print(f"Error: PDF not found: {pdf_path}")
+        raise SystemExit(1)
+
+    mission_cfg = load_mission_config(Path("config"), pdf_path.name)
+    mission_overrides = mission_cfg.layout_overrides or {}
+
+    valid_speakers = mission_overrides.get("valid_speakers")
+    mission_keywords = mission_overrides.get("mission_keywords")
+    valid_locations = mission_overrides.get("valid_locations")
+
+    global_parser = global_cfg.pipeline_defaults.get("parser", {})
+    if isinstance(global_parser, dict):
+        global_replacements = global_parser.get("text_replacements", {})
+    else:
+        global_replacements = {}
+    mission_replacements = mission_overrides.get("text_replacements", {})
+    text_replacements = {**global_replacements, **mission_replacements}
+
+    output_dir = global_cfg.output_dir / pdf_path.stem / "pages"
+    if not output_dir.exists():
+        print(f"Error: output not found: {output_dir}")
+        raise SystemExit(1)
+
+    # Rebuild timestamp index from updated JSON
+    index_path = global_cfg.state_dir / f"{pdf_path.stem}_timestamps_index.json"
+    ts_index = GlobalTimestampIndex(index_path)
+
+    lexicon_path = Path("assets/lexicon/apollo11_lexicon.json")
+
+    page_files = sorted(output_dir.glob("Page_*/**/*.json"))
+    updated = 0
+
+    # Initialize timestamp corrector with None (will pick up first timestamp)
+    ts_corrector = TimestampCorrector(initial_ts=None)
+
+    for page_file in page_files:
+        try:
+            payload = json.loads(page_file.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+
+        blocks = payload.get("blocks", [])
+        if not blocks:
+            continue
+
+        new_blocks = split_embedded_timestamp_blocks(blocks)
+        new_blocks = merge_duplicate_comm_timestamps(new_blocks)
+        new_blocks = merge_nearby_duplicate_timestamps(new_blocks)
+        for block in new_blocks:
+            if block.get("type") == "comm" and block.get("text"):
+                block["text"] = remove_repeated_phrases(block["text"])
+
+        # Apply timestamp corrector
+        new_blocks = ts_corrector.process_blocks(new_blocks)
+
+        if valid_speakers:
+            new_blocks = SpeakerCorrector(valid_speakers).process_blocks(new_blocks)
+
+        if lexicon_path.exists():
+            new_blocks = TextCorrector(lexicon_path, text_replacements, mission_keywords).process_blocks(new_blocks)
+            new_blocks = [b for b in new_blocks if not (b.get("text") and GOSS_NET_RE.match(str(b.get("text"))))]
+
+        payload["blocks"] = new_blocks
+        page_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        updated += 1
+
+        match = re.search(r"_page_(\d{4})\\.json$", page_file.name)
+        if match:
+            page_num = int(match.group(1)) - 1
+            page_timestamps = [
+                b.get("timestamp") for b in new_blocks
+                if b.get("type") == "comm" and b.get("timestamp")
+            ]
+            ts_index.add_timestamps(page_num, page_timestamps)
+
+    ts_index.save()
+    print(f"Post-processed pages: {updated}")
 
 @cli.command()
 @click.argument("pdf_name")

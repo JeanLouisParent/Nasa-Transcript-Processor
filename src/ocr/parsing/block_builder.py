@@ -20,8 +20,202 @@ from .patterns import (
     NO_COMM_RE,
     END_OF_TAPE_KEYWORD,
     GOSS_NET_RE,
+    SPEAKER_TOKEN_RE,
 )
 from .utils import fuzzy_find, is_transcription_header, clean_trailing_footer, extract_header_metadata
+
+
+EMBEDDED_TIMESTAMP_RE = re.compile(
+    r"\(?\b[0-9OIil]{2}[:\s][0-9OIil]{2}[:\s][0-9OIil]{2}[ .:][0-9OIil]{2}\b\)?"
+)
+
+
+def _normalize_embedded_timestamp(raw: str) -> str | None:
+    chars = re.findall(r"[0-9OIil]", raw)
+    if len(chars) < 8:
+        return None
+    digits: list[str] = []
+    for c in chars[:8]:
+        if c in ("O", "o"):
+            digits.append("0")
+        elif c in ("I", "i", "l"):
+            digits.append("1")
+        else:
+            digits.append(c)
+    parts = ["".join(digits[i:i + 2]) for i in range(0, 8, 2)]
+    return " ".join(parts)
+
+
+def split_embedded_timestamp_blocks(blocks: list[dict]) -> list[dict]:
+    """
+    Split blocks that contain embedded timestamps inside their text.
+    """
+    output: list[dict] = []
+    for block in blocks:
+        text = block.get("text")
+        if not text or not EMBEDDED_TIMESTAMP_RE.search(text):
+            output.append(block)
+            continue
+
+        matches = list(EMBEDDED_TIMESTAMP_RE.finditer(text))
+        if not matches:
+            output.append(block)
+            continue
+
+        prefix = text[:matches[0].start()].strip()
+        if prefix:
+            base_block = dict(block)
+            base_block["text"] = prefix
+            output.append(base_block)
+
+        for idx, match in enumerate(matches):
+            ts = _normalize_embedded_timestamp(match.group(0))
+            if not ts:
+                continue
+            seg_start = match.end()
+            seg_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+            seg_text = text[seg_start:seg_end].strip()
+
+            speaker = None
+            location = None
+            if seg_text:
+                tokens = seg_text.split()
+                if tokens and SPEAKER_TOKEN_RE.match(tokens[0]):
+                    speaker = tokens[0].rstrip(":")
+                    seg_text = " ".join(tokens[1:]).strip()
+                if seg_text.startswith("("):
+                    loc_match = re.match(r"^\(([^)]+)\)\s*(.*)$", seg_text)
+                    if loc_match:
+                        location = loc_match.group(1).strip().upper()
+                        seg_text = loc_match.group(2).strip()
+
+            seg_text = seg_text.lstrip(":-").strip()
+
+            new_block = {"type": "comm", "timestamp": ts}
+            if speaker:
+                new_block["speaker"] = speaker
+            if location:
+                new_block["location"] = location
+            if seg_text:
+                new_block["text"] = seg_text
+            output.append(new_block)
+
+    return output
+
+
+def merge_duplicate_comm_timestamps(blocks: list[dict]) -> list[dict]:
+    """
+    Merge consecutive comm blocks that share the same timestamp.
+    """
+    def merge_text(prev_text: str, new_text: str) -> str:
+        if not prev_text:
+            return new_text
+        if not new_text:
+            return prev_text
+        if new_text in prev_text:
+            return prev_text
+        if prev_text in new_text:
+            return new_text
+        prev_words = prev_text.split()
+        new_words = new_text.split()
+        max_k = min(12, len(prev_words), len(new_words))
+        for k in range(max_k, 0, -1):
+            if prev_words[-k:] == new_words[:k]:
+                return " ".join(prev_words + new_words[k:])
+        return f"{prev_text} {new_text}".strip()
+
+    merged: list[dict] = []
+    for block in blocks:
+        if (
+            merged
+            and block.get("type") == "comm"
+            and merged[-1].get("type") == "comm"
+            and block.get("timestamp")
+            and block.get("timestamp") == merged[-1].get("timestamp")
+        ):
+            prev = merged[-1]
+            prev_speaker = prev.get("speaker")
+            block_speaker = block.get("speaker")
+            if not block_speaker or not prev_speaker or block_speaker == prev_speaker:
+                if not prev_speaker and block_speaker:
+                    prev["speaker"] = block_speaker
+                if not prev.get("location") and block.get("location"):
+                    prev["location"] = block.get("location")
+                if block.get("text"):
+                    prev_text = prev.get("text", "")
+                    new_text = block["text"]
+                    if prev_text and new_text:
+                        # Same timestamp duplicates are usually OCR splits; keep the most complete variant.
+                        prev["text"] = new_text if len(new_text) > len(prev_text) else prev_text
+                    else:
+                        prev["text"] = merge_text(prev_text, new_text)
+                if not prev.get("timestamp_correction") and block.get("timestamp_correction"):
+                    prev["timestamp_correction"] = block.get("timestamp_correction")
+                continue
+        merged.append(block)
+    return merged
+
+
+def remove_repeated_phrases(text: str) -> str:
+    """
+    Remove immediately repeated word sequences inside a line.
+    """
+    words = text.split()
+    if len(words) < 12:
+        return text
+    max_span = 12
+    min_span = 6
+    window = 20
+    for span in range(max_span, min_span - 1, -1):
+        for i in range(0, len(words) - 2 * span + 1):
+            seq = words[i:i + span]
+            for j in range(i + span, min(len(words) - span + 1, i + span + window)):
+                if words[j:j + span] == seq:
+                    new_words = words[:j] + words[j + span:]
+                    return " ".join(new_words)
+    return text
+
+
+def merge_nearby_duplicate_timestamps(blocks: list[dict], window: int = 4) -> list[dict]:
+    """
+    Merge duplicate comm blocks with the same timestamp within a small window.
+    """
+    merged: list[dict] = []
+    for block in blocks:
+        if block.get("type") != "comm" or not block.get("timestamp"):
+            merged.append(block)
+            continue
+        ts = block.get("timestamp")
+        speaker = block.get("speaker")
+        merged_idx = None
+        for back in range(1, min(window, len(merged)) + 1):
+            prev = merged[-back]
+            if prev.get("type") != "comm":
+                continue
+            if prev.get("timestamp") != ts:
+                continue
+            prev_speaker = prev.get("speaker")
+            if prev_speaker and speaker and prev_speaker != speaker:
+                short_text = (block.get("text") or "").strip()
+                if len(short_text) > 20:
+                    continue
+            merged_idx = len(merged) - back
+            break
+        if merged_idx is None:
+            merged.append(block)
+            continue
+        prev = merged[merged_idx]
+        if not prev.get("speaker") and speaker:
+            prev["speaker"] = speaker
+        if not prev.get("location") and block.get("location"):
+            prev["location"] = block.get("location")
+        if block.get("text"):
+            prev_text = prev.get("text", "")
+            new_text = block["text"]
+            prev["text"] = new_text if len(new_text) > len(prev_text) else prev_text
+        if not prev.get("timestamp_correction") and block.get("timestamp_correction"):
+            prev["timestamp_correction"] = block.get("timestamp_correction")
+    return merged
 
 
 def build_page_json(
@@ -102,6 +296,13 @@ def build_page_json(
             blocks[-1]["text"] = (blocks[-1]["text"] + " " + block["text"]).strip()
         else:
             blocks.append(block)
+
+    # Split blocks that embed multiple timestamps in their text
+    blocks = split_embedded_timestamp_blocks(blocks)
+    # Merge consecutive comm blocks that share the same timestamp
+    blocks = merge_duplicate_comm_timestamps(blocks)
+    # Merge nearby duplicates within a small window
+    blocks = merge_nearby_duplicate_timestamps(blocks)
 
     # Transform LUNAR REV blocks
     for block in blocks:
@@ -185,7 +386,10 @@ def build_page_json(
     # Final cleanup of footers and locations on merged text
     for block in blocks:
         if block.get("text"):
-            text = clean_trailing_footer(block["text"])
+            text = block["text"]
+            if block.get("type") == "comm":
+                text = remove_repeated_phrases(text)
+            text = clean_trailing_footer(text)
             # Remove any residual location tag at the start: "(TRANQ) ..."
             if valid_locations:
                 for loc in valid_locations:

@@ -45,9 +45,17 @@ class SpeakerCorrector:
             doubled = normalized * 2
             if doubled in self.valid_speakers_set:
                 return doubled
-        # Common OCR slips for CMP
-        if normalized in {"CT", "CTP"} and "CMP" in self.valid_speakers_set:
-            return "CMP"
+        # Common OCR slips
+        ocr_fixes = {
+            "CT": "CMP",
+            "CTP": "CMP",
+            "CMF": "CMP",
+            "CMFVERB": "CMP",
+            "IMF": "LMP",
+            "CDF": "CDR",
+        }
+        if normalized in ocr_fixes and ocr_fixes[normalized] in self.valid_speakers_set:
+            return ocr_fixes[normalized]
 
         # 3. Fuzzy match
         # Prefer same-length call signs when OCR returns 3 chars.

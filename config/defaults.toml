@@ -34,10 +34,14 @@ header_ratio = 0.10 # Header zone ratio
 
 [lexicon]
 mission_keywords = [
-    "CARNARVON", "TANANARIVE", "GUAM", "MADRID", "ASCENSION", 
+    "CARNARVON", "TANANARIVE", "GUAM", "MADRID", "ASCENSION",
     "BERMUDA", "CANARY", "HONOLULU", "GOLDSTONE", "MILA",
     "TEI", "TLI", "LOI", "COI", "EVA", "LM", "CSM", "CMC", "LGC", "DSKY",
-    "GRAND BAHAMA ISLANDS", "GRAND BAHAMA ISLAND", "GUAYMAS", "VANGUARD", "HONEYSUCKLE"
+    "GRAND BAHAMA ISLANDS", "GRAND BAHAMA ISLAND", "GUAYMAS", "VANGUARD", "HONEYSUCKLE",
+    # Technical terms with hyphens (preserve exact format for OCR correction)
+    "S-IVB", "S-IV", "AIR-TO-GROUND", "NO-GO",
+    "DELTA-P", "DELTA-V", "DELTA-VC", "DELTA-H", "DELTA-VZ", "DELTA-VT", "DELTA-TIG", "DELTA-R", "DELTA-VX",
+    "LOI-2"
 ]
 
 [parser]

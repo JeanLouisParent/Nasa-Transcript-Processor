@@ -37,7 +37,7 @@ valid_speakers = ["CDR", "CC", "CMP", "LMP", "SC", "HOUSTON", "MS", "MSFN", "PAO
 # EAGLE = Lunar Module, COLUMBIA = Command Module, TRANQ = Tranquility Base, EVA = Extra-Vehicular Activity
 valid_locations = ["EAGLE", "COLUMBIA", "TRANQ", "EVA"]
 # Specific OCR fixes for Apollo 11
-text_replacements = { "\\bll\\b" = "11", "\\bI1\\b" = "11", "\\bil\\b" = "11", "(\\w+)'11" = "\\1'll", "GRAINED BEAM" = "GRAND BAHAMA", "Gunymas" = "Guaymas", "PFESS" = "PRESS", "PASS light" = "PRESS light", "MASTEP" = "MASTER", "CDY" = "CDR", "LIF" = "LMP", "HIM" = "LMP", "His-IVB" = "S-IVB", "His-IV" = "S-IV" }
+text_replacements = { "\\bll\\b" = "11", "\\bI1\\b" = "11", "\\bil\\b" = "11", "(\\w+)'11" = "\\1'll", "GRAINED BEAM" = "GRAND BAHAMA", "Gunymas" = "Guaymas", "PFESS" = "PRESS", "PASS light" = "PRESS light", "MASTEP" = "MASTER", "CDY" = "CDR", "LIF" = "LMP", "HIM" = "LMP", "\\b(His|Is)-IV" = "S-IV" }
 
 # Mission-specific speaker OCR fixes
 [mission.11.speaker_ocr_fixes]

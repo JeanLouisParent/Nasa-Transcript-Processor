@@ -101,9 +101,8 @@ class TextCorrector:
 
         text = re.sub(r"\b[A-Z][A-Z()]{0,5}\b", strip_paren_token, text)
 
-        # Apply mission-specific replacements
-        for pattern, replacement in self.replacements.items():
-            text = re.sub(pattern, replacement, text)
+        # Note: mission-specific replacements moved to end of correct_text()
+        # to apply AFTER spell checking
 
         # Remove prohibited chars inside words (OCR artifacts like '|', '~')
         text = re.sub(r"[|~_]", "", text)
@@ -260,6 +259,12 @@ class TextCorrector:
                 norm_text = re.sub(r"[^A-Z0-9]", "", upper)
                 if difflib.SequenceMatcher(None, norm_text, "GOSSNET1").ratio() >= 0.6:
                     return "(GOSS NET 1)"
+
+        # Apply mission-specific replacements AFTER spell checking
+        # This ensures patterns like "Is-IVB" → "S-IVB" are applied after
+        # spell checking has finished modifying the text
+        for pattern, replacement in self.replacements.items():
+            corrected = re.sub(pattern, replacement, corrected)
 
         return corrected
 

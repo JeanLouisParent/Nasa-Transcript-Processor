@@ -5,7 +5,8 @@ Regex patterns and constants for transcript parsing.
 import re
 
 # Character set for timestamps (digits + common OCR errors)
-TS_CHARS = r"[\dOI'()]"
+# Includes: digits, O/I (0/1 errors), ' (apostrophe), () (parentheses), : (colon), ? (question mark)
+TS_CHARS = r"[\dOI'():?]"
 
 # Timestamp patterns
 TIMESTAMP_STRICT_RE = re.compile(rf"^{TS_CHARS}{{2}}(?:\s+{TS_CHARS}{{2}}){{2,3}}$")

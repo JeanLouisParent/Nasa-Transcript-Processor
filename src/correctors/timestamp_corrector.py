@@ -61,6 +61,8 @@ class TimestampCorrector:
         norm = norm.replace("S", "5").replace("B", "8")
         norm = norm.replace(")", "0").replace("(", "0")
         norm = norm.replace("'", "")
+        # Remove OCR noise characters that appear in timestamps
+        norm = norm.replace(":", "").replace("?", "")
 
         # Handle dashes
         norm = norm.replace("--", "00").replace("-", "0")
@@ -84,12 +86,22 @@ class TimestampCorrector:
             return None
 
         try:
-            return Timecode(
-                int(match.group(1)),
-                int(match.group(2)),
-                int(match.group(3)),
-                int(match.group(4))
-            )
+            day = int(match.group(1))
+            hour = int(match.group(2))
+            minute = int(match.group(3))
+            second = int(match.group(4))
+
+            # Correct common OCR errors for day field
+            # Apollo missions lasted ~8-12 days max, so day > 10 is likely an OCR error
+            if day == 94:  # Common: "04" misread as "94" (0→9)
+                day = 4
+            elif day == 55:  # Common: "05" misread as "55" (0→5)
+                day = 5
+            elif day > 10:  # Any other impossible day value
+                # Try to infer: if first digit is wrong, use second digit
+                day = day % 10
+
+            return Timecode(day, hour, minute, second)
         except ValueError:
             return None
 

@@ -33,10 +33,20 @@ col1_end = 0.15
 col2_end = 0.30
 # Valid speakers for correction
 valid_speakers = ["CDR", "CC", "CMP", "LMP", "SC", "HOUSTON", "MS", "MSFN", "PAO", "CT", "HORNET", "MCC", "COMM", "SWIM 1", "PRESIDENT NIXON"]
-# Valid locations/stations
-valid_locations = ["TRANQ", "COLUMBIA", "EAGLE"]
+# Valid locations/stations (exhaustive list based on HTML reference)
+# EAGLE = Lunar Module, COLUMBIA = Command Module, TRANQ = Tranquility Base, EVA = Extra-Vehicular Activity
+valid_locations = ["EAGLE", "COLUMBIA", "TRANQ", "EVA"]
 # Specific OCR fixes for Apollo 11
-text_replacements = { "\\bll\\b" = "11", "\\bI1\\b" = "11", "\\bil\\b" = "11", "(\\w+)'11" = "\\1'll", "GRAINED BEAM" = "GRAND BAHAMA", "Gunymas" = "Guaymas", "PFESS" = "PRESS", "PASS light" = "PRESS light", "MASTEP" = "MASTER", "CDY" = "CDR", "LIF" = "LMP", "HIM" = "LMP" }
+text_replacements = { "\\bll\\b" = "11", "\\bI1\\b" = "11", "\\bil\\b" = "11", "(\\w+)'11" = "\\1'll", "GRAINED BEAM" = "GRAND BAHAMA", "Gunymas" = "Guaymas", "PFESS" = "PRESS", "PASS light" = "PRESS light", "MASTEP" = "MASTER", "CDY" = "CDR", "LIF" = "LMP", "HIM" = "LMP", "His-IVB" = "S-IVB", "His-IV" = "S-IV" }
+
+# Mission-specific speaker OCR fixes
+[mission.11.speaker_ocr_fixes]
+"TLI" = "CC"
+"Tli" = "CC"
+
+# Manual speaker corrections by timestamp (for severe OCR errors)
+[mission.11.manual_speaker_corrections]
+"00 05 41 36" = "CMP"  # "(V'" OCR error
 
 [mission.12]
 file_name = "AS12_TEC.PDF"

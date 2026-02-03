@@ -43,6 +43,23 @@ mission_keywords = [
 [parser]
 # Global OCR fixes applicable to all missions
 
+# Keywords used to identify headers in transcripts
+header_keywords = ["GOSS", "NET", "TAPE", "PAGE", "APOLLO", "AIR-TO-GROUND"]
+
+# Keywords indicating transitions or periods without communication
+transition_keywords = [
+    "REST PERIOD",
+    "NO COMMUNICATIONS",
+    "NO COMMUNICATION",
+    "LOSS OF SIGNAL",
+    "AOS",
+    "LOS",
+    "SILENCE"
+]
+
+# Keyword indicating end of tape
+end_of_tape_keyword = "END OF TAPE"
+
 [parser.text_replacements]
 "\\bRFV\\b" = "REV"
 "\\bRE V\\b" = "REV"
@@ -50,3 +67,27 @@ mission_keywords = [
 "(?i)air[-\\s]?two[-\\s]?ground voice transposition" = "AIR-TO-GROUND VOICE TRANSCRIPTION"
 "(?i)air[-\\s]?to[-\\s]?ground voice transposition" = "AIR-TO-GROUND VOICE TRANSCRIPTION"
 "(?i)\\(\\s*go(?:ss|s|st)\\s*net\\s*1\\s*\\)" = "(GOSS NET 1)"
+
+[correctors]
+# Configuration for correction modules
+
+# Common OCR errors for speaker codes (applicable across missions)
+[correctors.speaker_ocr_fixes]
+"CT" = "CMP"
+"CTP" = "CMP"
+"CMF" = "CMP"
+"CMFVERB" = "CMP"
+"IMF" = "LMP"
+"CDF" = "CDR"
+
+# Invalid annotations that should be filtered out from location field
+[correctors.invalid_location_annotations]
+annotations = [
+    "LAUGHING",
+    "LAUGHTER",
+    "LAUGH",
+    "GARBLE",
+    "GARBLED",
+    "PAUSE",
+    "PAUSED"
+]

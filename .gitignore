@@ -47,3 +47,4 @@ logs/
 
 # Config overrides (keep defaults, ignore local)
 config/*.local.toml
+state/

@@ -31,6 +31,7 @@ from src.core.config import PipelineConfig
 from src.core.pipeline import PageResult, TranscriptPipeline
 from src.correctors.timestamp_index import GlobalTimestampIndex
 from src.correctors.speaker_corrector import SpeakerCorrector
+from src.correctors.location_corrector import LocationCorrector
 from src.correctors.text_corrector import TextCorrector
 from src.correctors.timestamp_corrector import TimestampCorrector
 from src.ocr.ocr_client import (
@@ -692,6 +693,14 @@ def postprocess_json(pdf_name: str):
     mission_replacements = mission_overrides.get("text_replacements", {})
     text_replacements = {**global_replacements, **mission_replacements}
 
+    # Load corrector configs
+    global_correctors = global_cfg.pipeline_defaults.get("correctors", {})
+    global_speaker_ocr_fixes = global_correctors.get("speaker_ocr_fixes", {})
+    mission_speaker_ocr_fixes = mission_overrides.get("speaker_ocr_fixes", {})
+    speaker_ocr_fixes = {**global_speaker_ocr_fixes, **mission_speaker_ocr_fixes}
+    invalid_location_annotations = global_correctors.get("invalid_location_annotations", {}).get("annotations", [])
+    manual_speaker_corrections = mission_overrides.get("manual_speaker_corrections", {})
+
     output_dir = global_cfg.output_dir / pdf_path.stem / "pages"
     if not output_dir.exists():
         print(f"Error: output not found: {output_dir}")
@@ -729,8 +738,45 @@ def postprocess_json(pdf_name: str):
         # Apply timestamp corrector
         new_blocks = ts_corrector.process_blocks(new_blocks)
 
+        # Apply manual speaker corrections by timestamp
+        if manual_speaker_corrections:
+            for block in new_blocks:
+                if block.get("type") == "comm" and block.get("timestamp"):
+                    ts = block["timestamp"]
+                    if ts in manual_speaker_corrections:
+                        block["speaker"] = manual_speaker_corrections[ts]
+
         if valid_speakers:
-            new_blocks = SpeakerCorrector(valid_speakers).process_blocks(new_blocks)
+            new_blocks = SpeakerCorrector(valid_speakers, speaker_ocr_fixes).process_blocks(new_blocks)
+
+        if valid_locations:
+            new_blocks = LocationCorrector(valid_locations, invalid_location_annotations).process_blocks(new_blocks)
+
+        # Clean up problematic blocks
+        for block in new_blocks:
+            if block.get("type") == "comm":
+                text = block.get("text", "").strip()
+
+                # Reclassify LUNAR REV markers as meta
+                if text.startswith("--") and "LUNAR REV" in text.upper():
+                    block["type"] = "meta"
+                    block.pop("speaker", None)
+                    block.pop("location", None)
+
+                # Reclassify unidentifiable noise as annotation (handle typos: unindentifiable)
+                elif text.startswith("(") and ("UNIDENTIFIABLE" in text.upper() or "UNINDENTIFIABLE" in text.upper()):
+                    block["type"] = "annotation"
+                    block.pop("speaker", None)
+                    block.pop("location", None)
+
+        # Filter out comm blocks with empty/minimal text and no speaker
+        new_blocks = [
+            b for b in new_blocks
+            if not (b.get("type") == "comm" and
+                    not b.get("speaker") and
+                    (len(b.get("text", "").strip()) < 10 or
+                     b.get("text", "").strip() in (".", ". Over.", "Over.")))
+        ]
 
         if lexicon_path.exists():
             new_blocks = TextCorrector(lexicon_path, text_replacements, mission_keywords).process_blocks(new_blocks)

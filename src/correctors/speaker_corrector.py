@@ -9,14 +9,16 @@ import difflib
 
 
 class SpeakerCorrector:
-    def __init__(self, valid_speakers: list[str]):
+    def __init__(self, valid_speakers: list[str], ocr_fixes: dict[str, str] | None = None):
         """
         Initialize with a list of valid speakers.
         Args:
             valid_speakers: List of allowed speaker codes (e.g. ["CDR", "CC"])
+            ocr_fixes: Dictionary of common OCR errors to corrections (e.g. {"CT": "CMP"})
         """
         self.valid_speakers = valid_speakers
         self.valid_speakers_set = set(valid_speakers)
+        self.ocr_fixes = ocr_fixes or {}
 
     def correct_speaker(self, raw_speaker: str) -> str:
         """
@@ -46,16 +48,8 @@ class SpeakerCorrector:
             if doubled in self.valid_speakers_set:
                 return doubled
         # Common OCR slips
-        ocr_fixes = {
-            "CT": "CMP",
-            "CTP": "CMP",
-            "CMF": "CMP",
-            "CMFVERB": "CMP",
-            "IMF": "LMP",
-            "CDF": "CDR",
-        }
-        if normalized in ocr_fixes and ocr_fixes[normalized] in self.valid_speakers_set:
-            return ocr_fixes[normalized]
+        if normalized in self.ocr_fixes and self.ocr_fixes[normalized] in self.valid_speakers_set:
+            return self.ocr_fixes[normalized]
 
         # 3. Fuzzy match
         # Prefer same-length call signs when OCR returns 3 chars.
@@ -84,26 +78,35 @@ class SpeakerCorrector:
 
             # 1. Try to recover speaker from text if empty
             if not block.get("speaker") and block.get("text"):
-                # Split first word
-                tokens = block["text"].split()
+                text = block["text"]
+                tokens = text.split()
+
                 if tokens:
-                    # Try two-token speaker (e.g. "SWIM 1", "PRESIDENT NIXON")
-                    if len(tokens) >= 2:
-                        candidate = f"{tokens[0]} {tokens[1]}".upper()
-                        if candidate in self.valid_speakers_set:
-                            block["speaker"] = candidate
-                            block["text"] = " ".join(tokens[2:]).strip()
+                    # Search for speaker in first 4 tokens (skipping likely non-speaker prefixes)
+                    for i in range(min(4, len(tokens))):
+                        candidate_token = tokens[i]
+
+                        # Skip tokens that are clearly not speakers
+                        # (timestamps fragments, pure numbers, single chars with quotes/colons)
+                        if (len(candidate_token) <= 2 and any(c in candidate_token for c in "':0123456789")) or \
+                           candidate_token.isdigit() or \
+                           all(c in "0123456789: '-" for c in candidate_token):
                             continue
 
-                    first_word = tokens[0]
-                    # Check if first word looks like a speaker (fuzzy match)
-                    # We use a stricter cutoff here to avoid extracting random words
-                    corrected = self.correct_speaker(first_word)
+                        # Try two-token speaker (e.g. "SWIM 1", "PRESIDENT NIXON")
+                        if i + 1 < len(tokens):
+                            candidate = f"{tokens[i]} {tokens[i+1]}".upper()
+                            if candidate in self.valid_speakers_set:
+                                block["speaker"] = candidate
+                                block["text"] = " ".join(tokens[:i] + tokens[i+2:]).strip()
+                                break
 
-                    # If correct_speaker found a match in valid_speakers (and it's not just returning original)
-                    if corrected in self.valid_speakers_set:
-                        block["speaker"] = corrected
-                        block["text"] = " ".join(tokens[1:]).strip()
+                        # Try single token speaker
+                        corrected = self.correct_speaker(candidate_token)
+                        if corrected in self.valid_speakers_set:
+                            block["speaker"] = corrected
+                            block["text"] = " ".join(tokens[:i] + tokens[i+1:]).strip()
+                            break
 
             # 2. Correct existing speaker field
             if block.get("speaker"):

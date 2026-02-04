@@ -15,8 +15,14 @@ import re
 from collections import Counter
 from pathlib import Path
 
+from src.utils.station_normalization import match_station_name
+
 # Regex for word tokenization (keeps apostrophes inside words like "don't")
 WORD_RE = re.compile(r"\b[\w']+\b")
+# Regex for technical uppercase hyphen tokens (e.g., DELTA-P, S-IVB, LOI-2)
+TECHNICAL_HYPHEN_RE = re.compile(r"^[A-Z0-9]{2,}-[A-Z0-9]{1,4}$")
+# Regex for hyphenated words
+HYPHENATED_WORD_RE = re.compile(r"\b[\w']+(?:-[\w']+)+\b")
 
 class TextCorrector:
     def __init__(self, lexicon_path: Path | None = None, replacements: dict[str, str] | None = None, mission_keywords: list[str] | None = None):
@@ -61,76 +67,34 @@ class TextCorrector:
                     self.vocab.add(w_lower)
                     self.word_freq[w_lower] = max(self.word_freq.get(w_lower, 0), 100)
 
-    @staticmethod
-    def _station_variants(station: str) -> list[str]:
-        normalized = re.sub(r"[^A-Z0-9 ]", "", station.upper())
-        tokens = [tok for tok in normalized.split() if tok]
-        if not tokens:
-            return []
-
-        variants: list[str] = []
-        max_shift = min(2, len(tokens) - 1)
-        for shift in range(max_shift + 1):
-            variant_tokens = tokens[shift:]
-            while variant_tokens and variant_tokens[0] in {"AND", "THE", "AT", "IN", "ON", "OF"}:
-                variant_tokens = variant_tokens[1:]
-            if variant_tokens:
-                variants.append(" ".join(variant_tokens))
-
-        seen: set[str] = set()
-        deduped: list[str] = []
-        for variant in variants:
-            if variant not in seen:
-                seen.add(variant)
-                deduped.append(variant)
-        return deduped
-
     def _match_mission_keyword_phrase(self, station: str) -> str | None:
-        if not self.mission_keywords_phrases:
-            return None
-
-        variants = self._station_variants(station)
-        if not variants:
-            return None
-        for variant in variants:
-            if variant in self.mission_keywords_phrases:
-                return variant
-
-        best_kw: str | None = None
-        best_score = 0.0
-        for variant in variants:
-            var_tokens = variant.split()
-            for kw in self.mission_keywords_phrases:
-                score = difflib.SequenceMatcher(None, variant, kw).ratio()
-                kw_tokens = self._mission_keyword_tokens.get(kw, [])
-                if var_tokens and kw_tokens:
-                    if var_tokens[-1] == kw_tokens[-1]:
-                        score += 0.04
-                    overlap = len(set(var_tokens) & set(kw_tokens))
-                    score += 0.02 * overlap
-                if score > best_score:
-                    best_score = score
-                    best_kw = kw
-        return best_kw if best_score >= 0.64 else None
+        """Match station name against mission keywords using shared normalization logic."""
+        return match_station_name(station, self.mission_keywords_phrases)
 
     def _load_lexicon(self, path: Path):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-
-            # Load vocabulary and frequencies
-            if "top_words" in data:
-                self.word_freq.update(data["top_words"])
-
-            if "alphabetical_vocabulary" in data:
-                self.vocab.update(data["alphabetical_vocabulary"])
-                # Add top_words to vocab if not already there (should be)
-                self.vocab.update(self.word_freq.keys())
-
-            if "common_bigrams" in data:
-                self.bigram_freq.update(data["common_bigrams"])
-
+        except FileNotFoundError:
+            print(f"Warning: Lexicon file not found: {path}")
+            return
+        except json.JSONDecodeError as e:
+            print(f"Error: Invalid JSON in lexicon file {path}: {e}")
+            return
         except Exception as e:
-            print(f"Error loading lexicon: {e}")
+            print(f"Error reading lexicon file {path}: {e}")
+            return
+
+        # Load vocabulary and frequencies
+        if "top_words" in data:
+            self.word_freq.update(data["top_words"])
+
+        if "alphabetical_vocabulary" in data:
+            self.vocab.update(data["alphabetical_vocabulary"])
+            # Add top_words to vocab if not already there (should be)
+            self.vocab.update(self.word_freq.keys())
+
+        if "common_bigrams" in data:
+            self.bigram_freq.update(data["common_bigrams"])
 
     @staticmethod
     def _canonicalize_mode_token(token: str) -> str | None:
@@ -283,6 +247,20 @@ class TextCorrector:
         # Remove prohibited chars inside words (OCR artifacts like '|', '~')
         text = re.sub(r"[|~_]", "", text)
 
+        # Remove orphaned apostrophes (not part of contractions)
+        # Keep apostrophes in: don't, it's, we're, etc.
+        text = re.sub(r"\b'\s+", " ", text)  # Remove leading orphaned apostrophe with space after
+        text = re.sub(r"\s+'\b", " ", text)  # Remove trailing orphaned apostrophe with space before
+        text = re.sub(r"\s+'\s+", " ", text)  # Remove standalone apostrophe between spaces
+
+        # Remove orphaned opening parentheses without closing
+        # Match: "( word" but not "(word" or "(word)"
+        text = re.sub(r"\(\s+(?=[A-Za-z])", "", text)  # Remove "( word" -> "word"
+
+        # Remove orphaned closing parentheses without opening
+        text = re.sub(r"(?<=[A-Za-z])\s+\)", "", text)  # Remove "word )" -> "word"
+        text = re.sub(r"(?<=\s)\)\s+", " ", text)  # Remove " ) " -> " "
+
         return text
 
     def suggest_correction(
@@ -393,7 +371,7 @@ class TextCorrector:
                     nonlocal prev_word
                     word = m.group(0)
                     # Preserve technical uppercase hyphen tokens (e.g., DELTA-P, S-IVB, LOI-2).
-                    if re.match(r"^[A-Z0-9]{2,}-[A-Z0-9]{1,4}$", word):
+                    if TECHNICAL_HYPHEN_RE.match(word):
                         return word
                     parts = word.split("-")
                     if any(re.search(r"\d", part) for part in parts):
@@ -415,7 +393,7 @@ class TextCorrector:
                         prev_word = final
                     return "-".join(corrected_parts)
 
-                token = re.sub(r"\b[\w']+(?:-[\w']+)+\b", fix_hyphenated, token)
+                token = HYPHENATED_WORD_RE.sub(fix_hyphenated, token)
 
                 new_token = re.sub(r"\w+", repl, token)
                 corrected_tokens.append(new_token)

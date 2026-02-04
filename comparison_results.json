@@ -1,0 +1,1099 @@
+{
+  "html_count": 8428,
+  "json_count": 8553,
+  "missing_count": 225,
+  "partial_missing_count": 908,
+  "missing_communications": [
+    {
+      "timestamp": "00:00:09:19",
+      "speaker": "CC",
+      "text": "Ignition confirmed; thrust is GO, 11."
+    },
+    {
+      "timestamp": "00:00:11:51",
+      "speaker": "CC",
+      "text": "Roger. Shutdown. We copy 101.4 by 103.6."
+    },
+    {
+      "timestamp": "00:00:14:43",
+      "speaker": "CDR",
+      "text": "Okay. Thank you. CANARY (REV 1)"
+    },
+    {
+      "timestamp": "00:00:43:13",
+      "speaker": "CT",
+      "text": "TAN LOS."
+    },
+    {
+      "timestamp": "00:01:29:27",
+      "speaker": "LMP",
+      "text": "Cecil B. deAldrin is standing by for instructions."
+    },
+    {
+      "timestamp": "00:01:37:08",
+      "speaker": "CMP",
+      "text": "Go ahead, TLI plus 5."
+    },
+    {
+      "timestamp": "00:01:47:16",
+      "speaker": "CDR",
+      "text": "Roger. That's verified; the probe is extended."
+    },
+    {
+      "timestamp": "00:01:54:38",
+      "speaker": "CC",
+      "text": "Roger. 0ut."
+    },
+    {
+      "timestamp": "00:04:17:18",
+      "speaker": "CC",
+      "text": "Roger. Copy. CRY0 PRESS light."
+    },
+    {
+      "timestamp": "00:04:28:16",
+      "speaker": "CC",
+      "text": "Apollo 11, this ls Houston. Over."
+    },
+    {
+      "timestamp": "00:04:28:21",
+      "speaker": "CMP",
+      "text": "Houston, Apollo ll."
+    },
+    {
+      "timestamp": "00:04:41:47",
+      "speaker": "CDR",
+      "text": "That EMS DELTA-V counter is minus 4.0."
+    },
+    {
+      "timestamp": "00:05:46:07",
+      "speaker": "CC",
+      "text": "This is,Houston. Readback correct. Out."
+    },
+    {
+      "timestamp": "00:07:35:31",
+      "speaker": "LMP",
+      "text": "Houston, Apollo 11.LMP is back on the line."
+    },
+    {
+      "timestamp": "00:07:35:40",
+      "speaker": "LMP",
+      "text": "Read you five-by."
+    },
+    {
+      "timestamp": "00:09:21:19",
+      "speaker": "CC",
+      "text": "Roger, 11. You're about one-by. Go ahead."
+    },
+    {
+      "timestamp": "00:10:34:11",
+      "speaker": "CC",
+      "text": "Roger. You're five-by now."
+    },
+    {
+      "timestamp": "00:10:35:54",
+      "speaker": "CDR",
+      "text": "Five-by."
+    },
+    {
+      "timestamp": "01:00:16:22",
+      "speaker": "CMP",
+      "text": "Register 3: minus three balls 24."
+    },
+    {
+      "timestamp": "01:00:42:16",
+      "speaker": "CC",
+      "text": "Roger. We copy. Standby a minute, please."
+    },
+    {
+      "timestamp": "01:00:48:04",
+      "speaker": "CMP",
+      "text": "Okay. Fine. Let ts try that."
+    },
+    {
+      "timestamp": "01:02:54:47",
+      "speaker": "CC",
+      "text": "Roger. I just wanted to remind you that we haven't noticed on the TM the VERB 66 after the burn. And for your information, we played the recorded TV back last night, I believe, after you all turned in for your rest period, and the pictures came out quite well. Over."
+    },
+    {
+      "timestamp": "01:02:55:35",
+      "speaker": "CMP",
+      "text": "0kay. Thanks."
+    },
+    {
+      "timestamp": "01:03:06:39",
+      "speaker": "CDR",
+      "text": "0kay."
+    },
+    {
+      "timestamp": "01:03:23:00",
+      "speaker": "CC",
+      "text": "(Laughing.) A lot of gray paint."
+    },
+    {
+      "timestamp": "01:04:39:06",
+      "speaker": "LMP",
+      "text": "Good to heer it."
+    },
+    {
+      "timestamp": "01:06:30:24",
+      "speaker": "CC",
+      "text": "Goldstone, this is Houston CAP C0MM. Over."
+    },
+    {
+      "timestamp": "01:06:31:04",
+      "speaker": "CC",
+      "text": "Negative. Standby. We wanted to know - -"
+    },
+    {
+      "timestamp": "01:06:53:29",
+      "speaker": "CMP",
+      "text": "0kay."
+    },
+    {
+      "timestamp": "01:06:58:57",
+      "speaker": "CT",
+      "text": "Goldstone M&O."
+    },
+    {
+      "timestamp": "01:07:00:19",
+      "speaker": "CT",
+      "text": "CAP C0MM, Goldstone. Roger."
+    },
+    {
+      "timestamp": "01:07:01:01",
+      "speaker": "CT",
+      "text": "Houston CAP COMM, Goldstone M&0 NET 1."
+    },
+    {
+      "timestamp": "01:07:19:01",
+      "speaker": "CDR",
+      "text": "Okay, Charlie. Stant by one."
+    },
+    {
+      "timestamp": "01:07:20:38",
+      "speaker": "CDR",
+      "text": "Okay. Roger."
+    },
+    {
+      "timestamp": "01:09:53:21",
+      "speaker": "CC",
+      "text": "Roger. You're five-by. Is Neil on?"
+    },
+    {
+      "timestamp": "01:09:53:27",
+      "speaker": "CC",
+      "text": "Roger, Neil. You're five-by."
+    },
+    {
+      "timestamp": "01:10:35:22",
+      "speaker": "CMP",
+      "text": "Okay. That's it, Cnarlie."
+    },
+    {
+      "timestamp": "01:11:34:04",
+      "speaker": "CC",
+      "text": "It's bluish-green."
+    },
+    {
+      "timestamp": "01:11:45:18",
+      "speaker": "CMP",
+      "text": "Correction. Stand by; that's not so."
+    },
+    {
+      "timestamp": "01:12:06:28",
+      "speaker": "CC",
+      "text": "Roger, we copy. Radiation 11005, 10006, 09007; no medication; 37.1, 37.1, 37.1, 82, 84, 85, 87. Over."
+    },
+    {
+      "timestamp": "02:00:11:05",
+      "speaker": "CC",
+      "text": "(Laughter) Okay."
+    },
+    {
+      "timestamp": "02:05:55:00",
+      "speaker": "CMP",
+      "text": "Start after the rains in Houston."
+    },
+    {
+      "timestamp": "02:06:44:58",
+      "speaker": "CC",
+      "text": "That sounds fine to us. Ovcr."
+    },
+    {
+      "timestamp": "02:07:31:35",
+      "speaker": "LMP",
+      "text": "Hey, you get an A-plus."
+    },
+    {
+      "timestamp": "02:07:43:36",
+      "speaker": "CC",
+      "text": "The light is superb."
+    },
+    {
+      "timestamp": "02:07:47:23",
+      "speaker": "LMP",
+      "text": "Now you know how we feel."
+    },
+    {
+      "timestamp": "02:08:32:45",
+      "speaker": "CC",
+      "text": "Standby. I think so."
+    },
+    {
+      "timestamp": "02:10:19:48",
+      "speaker": "LMP",
+      "text": "Okay. Bravo, 0MNI; TRACK, MANUAL; and BEAM, WIDE."
+    },
+    {
+      "timestamp": "02:11:12:34",
+      "speaker": "CMP",
+      "text": "Because it's a special occasion today, Houston. This is the third anniversary of Gemini 10."
+    },
+    {
+      "timestamp": "02:11:32:23",
+      "speaker": "CC",
+      "text": "Roger. Reading you five by. How me? Over."
+    },
+    {
+      "timestamp": "02:12:22:57",
+      "speaker": "CMP",
+      "text": "Okay. Will do. I don't see any constraint here, Charlie. I was just checking to make sure, because last time, I went from 8 to 9 to 10 to 11 a little bit more swiftly than I'd been doing in the past."
+    },
+    {
+      "timestamp": "02:12:24:46",
+      "speaker": "CC",
+      "text": "Roger. Reading you five-by."
+    },
+    {
+      "timestamp": "02:12:50:07",
+      "speaker": "CMP",
+      "text": "Houston, Apollo 11. How's the PTC looking?"
+    },
+    {
+      "timestamp": "02:23:15:24",
+      "speaker": "CC",
+      "text": "11, this is tlouston. Affirmative. Over."
+    },
+    {
+      "timestamp": "02:23:23:38",
+      "speaker": "LMP",
+      "text": "Roger. On sleep; CDR, CMP, 7.5; LMP, 6.5. Over."
+    },
+    {
+      "timestamp": "03:00:14:49",
+      "speaker": "CC",
+      "text": "Roger. We missed an 0MNI switch there. Over."
+    },
+    {
+      "timestamp": "03:00:49:42",
+      "speaker": "CC",
+      "text": "Standby, please."
+    },
+    {
+      "timestamp": "03:00:56:03",
+      "speaker": "CC",
+      "text": "11, this is Houston. Readhack correct. Out."
+    },
+    {
+      "timestamp": "03:03:37:52",
+      "speaker": "CC",
+      "text": "TIG minus 12."
+    },
+    {
+      "timestamp": "03:04:42:57",
+      "speaker": "CDR",
+      "text": "(Laughter) Okay."
+    },
+    {
+      "timestamp": "03:05:03:32",
+      "speaker": "CC",
+      "text": "Roger. You'll be crossing 45 west at 77 04 10 or about 40 seconds from now. Over. Thirty seconds from now."
+    },
+    {
+      "timestamp": "03:06:57:01",
+      "speaker": "CC",
+      "text": "Roger. I have a comment here that says that's what the LM was built for."
+    },
+    {
+      "timestamp": "03:08:51:23",
+      "speaker": "CC",
+      "text": "Roger, Mike. It's landmark Alfa 1: T1, 82 37 35; T2, 82 42 50. We're 7 miles north. Over."
+    },
+    {
+      "timestamp": "03:08:51:59",
+      "speaker": "CMP",
+      "text": "Copy. P22: T1, time 82 37 35; T2, 82 42 50. And the target is 7 miles north. Thank you."
+    },
+    {
+      "timestamp": "03:11:14:40",
+      "speaker": "CC",
+      "text": "Roger. 1, 2, 3, 4, 5; 5, 4, 3, 2, 1. We're reading you five by. You can go to high bit rate now. Over."
+    },
+    {
+      "timestamp": "03:11:15:45",
+      "speaker": "CC",
+      "text": "Roger. Reading you five by also, Buzz, and we got the high bit rate. It's looking beautiful through Goldstone. Giving you a count: 1, 2, 3, 4, 5; 5, 4, 3, 2, 1. Please give us a count. Over."
+    },
+    {
+      "timestamp": "03:11:18:05",
+      "speaker": "CC",
+      "text": "Roger. You're beautiful in this mode, Buzz. We're reading you five by. Coming with a short count and we'd like one back from you. 1, 2, 3, 4, 5; 5, 4, 3, 2, 1. Houston out."
+    },
+    {
+      "timestamp": "04:00:26:12",
+      "speaker": "LMP",
+      "text": "Houston, Eagle. About four by four. Go ahead."
+    },
+    {
+      "timestamp": "04:00:29:22",
+      "speaker": "CC",
+      "text": "Roger, Mike. Coming at you with the 130, P1 is 98 37 35, P2 98 42 44, 4 miles north. Over."
+    },
+    {
+      "timestamp": "04:01:01:42",
+      "speaker": "CMP",
+      "text": "Do you want the T EPHEM first?"
+    },
+    {
+      "timestamp": "04:01:04:08",
+      "speaker": "CMP",
+      "text": "Okay. 97 04 03.86."
+    },
+    {
+      "timestamp": "04:01:24:48",
+      "speaker": "LMP",
+      "text": "Houston, Eagle, LMP. How do you read? Over."
+    },
+    {
+      "timestamp": "04:01:24:49",
+      "speaker": "CC",
+      "text": "Roger. Five by, Buzz. How me? Over."
+    },
+    {
+      "timestamp": "04:01:29:26",
+      "speaker": "LMP",
+      "text": "Roger. E memory GO."
+    },
+    {
+      "timestamp": "04:02:57:23",
+      "speaker": "CC",
+      "text": "Eagle, Housten. Over."
+    },
+    {
+      "timestamp": "04:03:06:27",
+      "speaker": "LMP",
+      "text": "Roger. Standing by for your K factor."
+    },
+    {
+      "timestamp": "04:03:07:18",
+      "speaker": "LMP",
+      "text": "Roger. 90 00 00 15."
+    },
+    {
+      "timestamp": "04:03:09:13",
+      "speaker": "CC",
+      "text": "Eagle, Houston. We recommend the AGS initial - Well, we see it coming up now on the AGS initialization. Over."
+    },
+    {
+      "timestamp": "04:03:29:07",
+      "speaker": "CC",
+      "text": "Apollo 11, Houston. One minute to LOS."
+    },
+    {
+      "timestamp": "04:04:20:28",
+      "speaker": "LMP",
+      "text": "Go ahead, Houston. Eagle is ready to copy."
+    },
+    {
+      "timestamp": "04:04:22:01",
+      "speaker": "LMP",
+      "text": "That's affirmative. Go ahead with the PDI."
+    },
+    {
+      "timestamp": "04:04:27:24",
+      "speaker": "CC",
+      "text": "Roger. Good readback, Buzz. Out."
+    },
+    {
+      "timestamp": "04:04:29:40",
+      "speaker": "LMP",
+      "text": "Okay. That explains it. Over."
+    },
+    {
+      "timestamp": "04:04:37:36",
+      "speaker": "CDR",
+      "text": "Somebody's upside-down."
+    },
+    {
+      "timestamp": "04:04:41:16",
+      "speaker": "CMP",
+      "text": "Roger. In P00."
+    },
+    {
+      "timestamp": "04:04:59:00",
+      "speaker": "CMP",
+      "text": "Yes. I'm oscillating between 0.69 and seven tenths."
+    },
+    {
+      "timestamp": "04:05:14:41",
+      "speaker": "CC",
+      "text": "That's affirmative, Eagle. Reading you five by."
+    },
+    {
+      "timestamp": "04:05:24:08",
+      "speaker": "CC",
+      "text": "Eagle, Houston. Stand by for my Mark."
+    },
+    {
+      "timestamp": "04:06:17:27",
+      "speaker": "LMP",
+      "text": "Houston, Eagle. How do you read?"
+    },
+    {
+      "timestamp": "04:06:27:14",
+      "speaker": "CC",
+      "text": "Roger. We saw that."
+    },
+    {
+      "timestamp": "04:06:32:08",
+      "speaker": "CC",
+      "text": "Roger. Pitch 212, yaw plus 37."
+    },
+    {
+      "timestamp": "04:06:38:28",
+      "speaker": "CC",
+      "text": "It's looking good to us. Over."
+    },
+    {
+      "timestamp": "04:06:39:06",
+      "speaker": "CDR",
+      "text": "Roger. Copy. 6 plus 25."
+    },
+    {
+      "timestamp": "04:06:39:35",
+      "speaker": "CDR",
+      "text": "Throttle down on time!"
+    },
+    {
+      "timestamp": "04:06:39:36",
+      "speaker": "CC",
+      "text": "Roger, We copy throttle down - -"
+    },
+    {
+      "timestamp": "04:06:41:51",
+      "speaker": "CC",
+      "text": "Eagle, you're looking great. Coming up 9 minutes."
+    },
+    {
+      "timestamp": "04:06:42:05",
+      "speaker": "CDR",
+      "text": "Manual attitude control is good."
+    },
+    {
+      "timestamp": "04:06:43:15",
+      "speaker": "LMP",
+      "text": "540 feet, down at - 30. Down at 15."
+    },
+    {
+      "timestamp": "04:06:43:46",
+      "speaker": "LMP",
+      "text": "300 feet, down 3 1/2, 47 forward."
+    },
+    {
+      "timestamp": "04:06:44:07",
+      "speaker": "LMP",
+      "text": "50, down at 2 1/2, 19 forward."
+    },
+    {
+      "timestamp": "04:06:44:31",
+      "speaker": "LMP",
+      "text": "160, 6 - 6 1/2 down."
+    },
+    {
+      "timestamp": "04:06:44:33",
+      "speaker": "LMP",
+      "text": "5 1/2 down, 9 forward. That's good."
+    },
+    {
+      "timestamp": "04:06:44:45",
+      "speaker": "LMP",
+      "text": "100 feet, 3 1/2 down, 9 forward. Five percent."
+    },
+    {
+      "timestamp": "04:06:45:17",
+      "speaker": "LMP",
+      "text": "40 feet, down 2 1/2. Kicking up some dust."
+    },
+    {
+      "timestamp": "04:06:45:21",
+      "speaker": "LMP",
+      "text": "30 feet, 2 1/2 down. Faint shadow."
+    },
+    {
+      "timestamp": "04:06:47:09",
+      "speaker": "CC",
+      "text": "- - T1. Over. Eagle, you are STAY for T1."
+    },
+    {
+      "timestamp": "04:06:47:12",
+      "speaker": "CDR",
+      "text": "Roger. Understand, STAY for T1."
+    },
+    {
+      "timestamp": "04:06:47:15",
+      "speaker": "CC",
+      "text": "Roger. And we see you venting the 0X."
+    },
+    {
+      "timestamp": "04:06:51:07",
+      "speaker": "LMP",
+      "text": "Like an AGS to PNGS align. Over."
+    },
+    {
+      "timestamp": "04:06:59:19",
+      "speaker": "CC",
+      "text": "Columbia, Houston. LOS 103 27, AOS 104 13. Over."
+    },
+    {
+      "timestamp": "04:07:39:36",
+      "speaker": "CC",
+      "text": "5, 4, 3, 2, 1."
+    },
+    {
+      "timestamp": "04:07:39:46",
+      "speaker": "CDR",
+      "text": "Roger. We got it; thank you."
+    },
+    {
+      "timestamp": "04:07:51:24",
+      "speaker": "LMP",
+      "text": "Okay. Here comes the E memory dump."
+    },
+    {
+      "timestamp": "04:07:52:16",
+      "speaker": "LMP",
+      "text": "Roger. That' s affirmative."
+    },
+    {
+      "timestamp": "04:07:59:08",
+      "speaker": "LMP",
+      "text": "Roger. Plus 0012."
+    },
+    {
+      "timestamp": "04:08:02:47",
+      "speaker": "CC",
+      "text": "Thirty seven minutes till T3."
+    },
+    {
+      "timestamp": "04:08:25:14",
+      "speaker": "CC",
+      "text": "Say again, Mike. You're about two by."
+    },
+    {
+      "timestamp": "04:09:01:30",
+      "speaker": "CC",
+      "text": "Columbia, Houston. First of all, we'd like a waste water dump to 10 percent on the backside. Secondly, it does not look like we are going to need any plane change at this time, so we will not be uplinking a new REFSMMAT. Third item, I would like all of your CRYO heaters to AUTO, and we are ready for a battery charge, battery BRAVO; it will last about 7 hours. If you should go to sleep, we will be terminating that BATT charge, but at the moment, we can go ahead and start the BATT charge on BATT Bravo. And a final item, for your SM RCS configuration for your rest period, register 1 for the DAP is 11111; DAP register 2, 01100. And your AUTO RCS select"
+    },
+    {
+      "timestamp": "04:09:18:20",
+      "speaker": "CMP",
+      "text": "Roger, Houston."
+    },
+    {
+      "timestamp": "04:10:22:56",
+      "speaker": "CC",
+      "text": "Tranquility Base, Tranquility Base, this is Houston. Over."
+    },
+    {
+      "timestamp": "04:10:23:30",
+      "speaker": "CDR",
+      "text": "CDR is reading 11O14."
+    },
+    {
+      "timestamp": "04:10:23:44",
+      "speaker": "LMP",
+      "text": "LMP is reading 09017 and three quarters."
+    },
+    {
+      "timestamp": "04:10:53:33",
+      "speaker": "CMP",
+      "text": "Affirmative. When's hatch open time in GET estinated?"
+    },
+    {
+      "timestamp": "04:11:05:43",
+      "speaker": "CC",
+      "text": "Roger, Mike. Papa 0.2 and 6.3 on your LAM 2 chart. Over."
+    },
+    {
+      "timestamp": "04:11:06:02",
+      "speaker": "CMP",
+      "text": "Roger. Papa 0.2 and who 0.3?"
+    },
+    {
+      "timestamp": "04:11:06:17",
+      "speaker": "CMP",
+      "text": "Thank you. Papa 0.2 and 6.3. I'll try them."
+    },
+    {
+      "timestamp": "04:12:07:37",
+      "speaker": "LMP",
+      "text": "Mark. All right. Okay."
+    },
+    {
+      "timestamp": "04:12:08:14",
+      "speaker": "LMP",
+      "text": "How do you read now?"
+    },
+    {
+      "timestamp": "04:12:08:18",
+      "speaker": "LMP",
+      "text": "Okay. I think that's going to be better."
+    },
+    {
+      "timestamp": "04:12:11:22",
+      "speaker": "CMP",
+      "text": "- - 00166, minus 00022, and the - -"
+    },
+    {
+      "timestamp": "04:12:12:11",
+      "speaker": "CDR",
+      "text": "O2 quantity is about 91."
+    },
+    {
+      "timestamp": "04:12:12:41",
+      "speaker": "CDR",
+      "text": "That where you were? B?"
+    },
+    {
+      "timestamp": "04:12:12:44",
+      "speaker": "LMP",
+      "text": "I'm in B."
+    },
+    {
+      "timestamp": "04:12:12:45",
+      "speaker": "CDR",
+      "text": "*** A."
+    },
+    {
+      "timestamp": "04:12:12:51",
+      "speaker": "LMP",
+      "text": "0kay. How do you read me?"
+    },
+    {
+      "timestamp": "04:12:12:58",
+      "speaker": "LMP",
+      "text": "I got another warning tone. Go."
+    },
+    {
+      "timestamp": "04:12:13:39",
+      "speaker": "CDR",
+      "text": "Houston, Tranquility. How do you read ? Over."
+    },
+    {
+      "timestamp": "04:12:14:10",
+      "speaker": "CC",
+      "text": "We're reading you loud and clear, Buzz. Out."
+    },
+    {
+      "timestamp": "04:12:22:27",
+      "speaker": "CDR",
+      "text": "*** Over, PLSS fan number 1 breaker,"
+    },
+    {
+      "timestamp": "04:12:25:25",
+      "speaker": "CDR",
+      "text": "*** both suit isolation valves to SUIT DISCONNECT."
+    },
+    {
+      "timestamp": "04:12:27:16",
+      "speaker": "LMP",
+      "text": "Oh, wait a minute. Should be - , Stand by."
+    },
+    {
+      "timestamp": "04:12:29:31",
+      "speaker": "LMP",
+      "text": "*** Got your mikes where you want them?"
+    },
+    {
+      "timestamp": "04:12:34:47",
+      "speaker": "LMP",
+      "text": "Now, if you'll pull the RCU down."
+    },
+    {
+      "timestamp": "04:12:41:36",
+      "speaker": "LMP",
+      "text": "Houston, Buzz here. Over."
+    },
+    {
+      "timestamp": "04:12:54:53",
+      "speaker": "LMP",
+      "text": "Minus 47."
+    },
+    {
+      "timestamp": "04:13:03:02",
+      "speaker": "CDR",
+      "text": "Open my RCU there, would you, Buzz?"
+    },
+    {
+      "timestamp": "04:13:07:45",
+      "speaker": "LMP",
+      "text": "No. I'd better get up first."
+    },
+    {
+      "timestamp": "04:13:12:52",
+      "speaker": "CMP",
+      "text": "Roger. 0MNI Delta."
+    },
+    {
+      "timestamp": "04:13:16:30",
+      "speaker": "LMP",
+      "text": "Move that up there."
+    },
+    {
+      "timestamp": "04:13:17:26",
+      "speaker": "CDR",
+      "text": "What hinge?"
+    },
+    {
+      "timestamp": "04:13:19:16",
+      "speaker": "CDR",
+      "text": "Okay. Houston, I'm on the porch."
+    },
+    {
+      "timestamp": "04:13:21:18",
+      "speaker": "CDR",
+      "text": "Houston, the MESA came down all right."
+    },
+    {
+      "timestamp": "04:13:21:39",
+      "speaker": "CDR",
+      "text": "Houston, this is Neil. Radio check."
+    },
+    {
+      "timestamp": "04:13:46:01",
+      "speaker": "LMP",
+      "text": "This pad sure didn't ***"
+    },
+    {
+      "timestamp": "04:13:52:40",
+      "speaker": "CDR",
+      "text": "For those who haven't read the plaque, we'll read the plaque that's on the front landing gear of this LM. First there's two hemispheres, one showing each of the two hemispheres of the Earth. Underneath it says \"Here Man from the planet Earth first set foot upon the Moon, July 1969 A.D. We came in peace for all mankind.\" It has the crew members' signatures and the signature of the President of the United States."
+    },
+    {
+      "timestamp": "04:13:53:45",
+      "speaker": "CDR",
+      "text": "Watch the LEC, there."
+    },
+    {
+      "timestamp": "04:14:00:10",
+      "speaker": "CC",
+      "text": "Okay. Here's another good one."
+    },
+    {
+      "timestamp": "04:14:06:39",
+      "speaker": "LMP",
+      "text": "They didn't come off?"
+    },
+    {
+      "timestamp": "04:14:07:01",
+      "speaker": "CDR",
+      "text": "*** that part? *** a rock here."
+    },
+    {
+      "timestamp": "04:14:09:35",
+      "speaker": "CC",
+      "text": "Oh, it's beautiful, Mike. It really is."
+    },
+    {
+      "timestamp": "04:14:16:25",
+      "speaker": "CC",
+      "text": "Go ahead, Mr. President. This is Houston. Out."
+    },
+    {
+      "timestamp": "04:14:31:43",
+      "speaker": "LMP",
+      "text": "The plus Z strut."
+    },
+    {
+      "timestamp": "04:14:37:58",
+      "speaker": "CC",
+      "text": "Roger. Copy Echo 0.3 and 7.6, and -"
+    },
+    {
+      "timestamp": "04:14:52:20",
+      "speaker": "LMP",
+      "text": "Taking some close up pictures of that rock."
+    },
+    {
+      "timestamp": "04:16:24:25",
+      "speaker": "CC",
+      "text": "Columbia. This is Houston. Grid coordinates: Kilo 0.9, 6.3, on LAM 2. Over."
+    },
+    {
+      "timestamp": "04:16:59:39",
+      "speaker": "CDR",
+      "text": "Houston, Tranquility Base. The CDR's PRD reads 11014."
+    },
+    {
+      "timestamp": "04:18:21:36",
+      "speaker": "CC",
+      "text": "Roger. When you get back into your surface checklist and come over to the COMM reconfiguration on page Surface 45, we'd like you to enable the ranging feature on your S band. That is, when you come down to S band configuration, instead of CAUTION and WARNING ELECTRONICS, ENABLE TV, we'd like you to go into the RANGE position and leave it there for as long as you conveniently can until you get ready to commence your rest period; and we'll try to get a little more ranging data on you. Over."
+    },
+    {
+      "timestamp": "04:18:26:53",
+      "speaker": "CC",
+      "text": "Columbia, Colunbia, this is Houston. Over."
+    },
+    {
+      "timestamp": "05:02:01:26",
+      "speaker": "CMP",
+      "text": "And CRY0 stir complete."
+    },
+    {
+      "timestamp": "05:02:28:24",
+      "speaker": "CDR",
+      "text": "Roger. Go ahead with the K factor."
+    },
+    {
+      "timestamp": "05:03:27:25",
+      "speaker": "CC",
+      "text": "Tranquility Base. Roger. We verify; those are correct."
+    },
+    {
+      "timestamp": "05:03:33:41",
+      "speaker": "CDR",
+      "text": "Ready for the blue bag - -"
+    },
+    {
+      "timestamp": "05:03:55:19",
+      "speaker": "CMP",
+      "text": "Houston, Columbia on 0MNI D Delta. Over."
+    },
+    {
+      "timestamp": "05:04:09:17",
+      "speaker": "CC",
+      "text": "Roger. We copy and we agree."
+    },
+    {
+      "timestamp": "05:04:20:00",
+      "speaker": "CC",
+      "text": "TIG minus 2."
+    },
+    {
+      "timestamp": "05:04:21:54",
+      "speaker": "LMP",
+      "text": "9, 8, 7, 6, 5, abort stage, engine arm ascent, proceed."
+    },
+    {
+      "timestamp": "05:04:24:32",
+      "speaker": "LMP",
+      "text": "S band looks like it's holding good, Houston."
+    },
+    {
+      "timestamp": "05:04:25:17",
+      "speaker": "LMP",
+      "text": "Right on H dot."
+    },
+    {
+      "timestamp": "05:04:25:22",
+      "speaker": "LMP",
+      "text": "- - this is H dot MAX now."
+    },
+    {
+      "timestamp": "05:04:31:00",
+      "speaker": "LMP",
+      "text": "Okay, Houston. We show 47.3 by 9.5."
+    },
+    {
+      "timestamp": "05:04:31:07",
+      "speaker": "CC",
+      "text": "Roger. 47.2 by 9.5."
+    },
+    {
+      "timestamp": "05:04:31:14",
+      "speaker": "LMP",
+      "text": "AGS has 9.5, 46.6."
+    },
+    {
+      "timestamp": "05:04:42:51",
+      "speaker": "LMP",
+      "text": "37, I believe."
+    },
+    {
+      "timestamp": "05:60:33:19",
+      "speaker": "CMP",
+      "text": "127 02 3450."
+    },
+    {
+      "timestamp": "05:06:39:12",
+      "speaker": "SC",
+      "text": "*** and I'll do it."
+    },
+    {
+      "timestamp": "05:06:39:52",
+      "speaker": "LMP",
+      "text": "*** want to get another *** data update ***"
+    },
+    {
+      "timestamp": "05:06:48:07",
+      "speaker": "LMP",
+      "text": "Okay. Latest estimate, 127 03 39."
+    },
+    {
+      "timestamp": "05:06:53:04",
+      "speaker": "CMP",
+      "text": "MARKS next."
+    },
+    {
+      "timestamp": "05:07:02:40",
+      "speaker": "CMP",
+      "text": "Good."
+    },
+    {
+      "timestamp": "05:07:03:54",
+      "speaker": "CMP",
+      "text": "That a boy!"
+    },
+    {
+      "timestamp": "05:08:04:29",
+      "speaker": "CMP",
+      "text": "That was a funny one. You know, I didn't feel it shock, and I thought things were pretty steady. I went to RETRACT there, and that's when all hell broke loose. Were you guys - did it appear to you to be - that you were jerking around quite a bit during the retrack cycle?"
+    },
+    {
+      "timestamp": "05:08:42:50",
+      "speaker": "CC",
+      "text": "Hey, Columbia. Houston. Mighty fine; loud and clear."
+    },
+    {
+      "timestamp": "05:10:35:13",
+      "speaker": "CMP",
+      "text": "Okay. Understand. I'm going to go to roll 1.1, pitch zero - or 52.6, and yaw 13.8, and you want a waste water dump 10 percent starting at 131 05."
+    },
+    {
+      "timestamp": "05:10:46:50",
+      "speaker": "CC",
+      "text": "Five by, 11. How me? Over."
+    },
+    {
+      "timestamp": "05:12:25:58",
+      "speaker": "CC",
+      "text": "Roger, Mike. Good readbaek. Out."
+    },
+    {
+      "timestamp": "05:13:50:08",
+      "speaker": "CMP",
+      "text": "Roger. *** fuel cell purge ..."
+    },
+    {
+      "timestamp": "05:16:52:33",
+      "speaker": "CMP",
+      "text": "All right-o."
+    },
+    {
+      "timestamp": "05:17:00:44",
+      "speaker": "CMP",
+      "text": "BATT Charlie 370, PYRO BATT A 370, BATT B 370; RCS, 55, 65, 64, and 62. Over."
+    },
+    {
+      "timestamp": "05:17:39:26",
+      "speaker": "CC",
+      "text": "11, Houston. Reading you about one by. Over."
+    },
+    {
+      "timestamp": "06:03:50:50",
+      "speaker": "LMP",
+      "text": "Roger. I copy, and our onboard readouts: Alfa, *** 2 percent, Bravo 54 percent, Cocoa's 64 percent, Delta 61 percent. Over."
+    }
+  ],
+  "patterns": {
+    "by_speaker": {
+      "CC": 81,
+      "CDR": 35,
+      "CT": 4,
+      "LMP": 61,
+      "CMP": 39,
+      "SC": 3,
+      "HORNET": 2
+    },
+    "by_hour": {
+      "00:00": 4,
+      "00:01": 4,
+      "00:04": 4,
+      "00:05": 1,
+      "00:07": 2,
+      "00:09": 1,
+      "00:10": 2,
+      "01:00": 3,
+      "01:02": 2,
+      "01:03": 2,
+      "01:04": 1,
+      "01:06": 4,
+      "01:07": 4,
+      "01:09": 2,
+      "01:10": 1,
+      "01:11": 2,
+      "01:12": 1,
+      "02:00": 1,
+      "02:05": 1,
+      "02:06": 1,
+      "02:07": 3,
+      "02:08": 1,
+      "02:10": 1,
+      "02:11": 2,
+      "02:12": 3,
+      "02:23": 2,
+      "03:00": 3,
+      "03:03": 1,
+      "03:04": 1,
+      "03:05": 1,
+      "03:06": 1,
+      "03:08": 2,
+      "03:11": 3,
+      "04:00": 2,
+      "04:01": 5,
+      "04:02": 1,
+      "04:03": 4,
+      "04:04": 7,
+      "04:05": 2,
+      "04:06": 22,
+      "04:07": 5,
+      "04:08": 2,
+      "04:09": 2,
+      "04:10": 4,
+      "04:11": 3,
+      "04:12": 19,
+      "04:13": 11,
+      "04:14": 8,
+      "04:16": 2,
+      "04:18": 2,
+      "05:02": 2,
+      "05:03": 3,
+      "05:04": 10,
+      "05:60": 1,
+      "05:06": 4,
+      "05:07": 2,
+      "05:08": 2,
+      "05:10": 2,
+      "05:12": 1,
+      "05:13": 1,
+      "05:16": 1,
+      "05:17": 2,
+      "06:03": 1,
+      "06:06": 1,
+      "06:09": 1,
+      "06:11": 1,
+      "06:12": 2,
+      "06:15": 1,
+      "06:16": 3,
+      "07:03": 3,
+      "07:05": 2,
+      "07:06": 2,
+      "07:07": 1,
+      "07:13": 1,
+      "07:22": 2,
+      "07:23": 2,
+      "08:02": 1,
+      "08:03": 2
+    }
+  }
+}

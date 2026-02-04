@@ -219,6 +219,20 @@ def merge_payloads(preferred: dict, fallback: dict) -> dict:
             if target_idx is not None and fb_text:
                 preferred_block = preferred_blocks[target_idx]
                 pref_text = preferred_block.get("text", "")
+
+                # Check if texts are significantly different (different quotes at same timestamp)
+                if pref_text and fb_text:
+                    pref_words = set(pref_text.lower().split())
+                    fb_words = set(fb_text.lower().split())
+                    if pref_words and fb_words:
+                        overlap = len(pref_words & fb_words) / min(len(pref_words), len(fb_words))
+                        if overlap < 0.3:
+                            # Very different texts - insert as separate block instead of replacing
+                            preferred_blocks.insert(target_idx + 1, fallback_block)
+                            preferred_texts.add(normalize_text_for_match(fb_text))
+                            preferred_text_list.append(fb_text)
+                            continue
+
                 pref_score = text_quality_score(pref_text)
                 fb_score = text_quality_score(fb_text)
                 if (
@@ -347,7 +361,8 @@ def run_ocr_pipeline(
     text_replacements: dict[str, str] | None = None,
     mission_keywords: list[str] | None = None,
     valid_locations: list[str] | None = None,
-    mission_overrides: dict[str, object] | None = None
+    mission_overrides: dict[str, object] | None = None,
+    lexicon_path: Path | None = None,
 ) -> tuple[int, dict[int, dict[str, float]]]:
     """Run OCR on already processed pages."""
     prompts_cfg = load_prompt_config(Path("config/prompts.toml"))
@@ -381,6 +396,11 @@ def run_ocr_pipeline(
 
     if mission_overrides is None:
         mission_overrides = {}
+
+    # Get invalid location annotations from config
+    global_correctors = config.pipeline_defaults.get("correctors", {})
+    invalid_location_annotations = global_correctors.get("invalid_location_annotations", {}).get("annotations", [])
+
     ocr_text_column_pass = bool(
         mission_overrides.get("ocr_text_column_pass")
         or config.pipeline_defaults.get("ocr_text_column_pass")
@@ -452,7 +472,8 @@ def run_ocr_pipeline(
                 mission_keywords, valid_locations,
                 inline_annotation_terms=invalid_location_annotations,
                 initial_ts=initial_ts,
-                previous_block_type=previous_block_type
+                previous_block_type=previous_block_type,
+                lexicon_path=lexicon_path
             )
             stage_t["build_plain"] = time.perf_counter() - t0
 
@@ -483,7 +504,8 @@ def run_ocr_pipeline(
                     mission_keywords, valid_locations,
                     inline_annotation_terms=invalid_location_annotations,
                     initial_ts=initial_ts,
-                    previous_block_type=previous_block_type
+                    previous_block_type=previous_block_type,
+                    lexicon_path=lexicon_path
                 )
                 stage_t["build_raw"] = time.perf_counter() - t0
                 t0 = time.perf_counter()
@@ -516,7 +538,8 @@ def run_ocr_pipeline(
                     mission_keywords, valid_locations,
                     inline_annotation_terms=invalid_location_annotations,
                     initial_ts=initial_ts,
-                    previous_block_type=previous_block_type
+                    previous_block_type=previous_block_type,
+                    lexicon_path=lexicon_path
                 )
                 stage_t["build_faint"] = time.perf_counter() - t0
                 t0 = time.perf_counter()
@@ -758,13 +781,22 @@ def postprocess_json(pdf_name: str):
     index_path = global_cfg.state_dir / f"{pdf_path.stem}_timestamps_index.json"
     ts_index = GlobalTimestampIndex(index_path)
 
-    lexicon_path = Path("assets/lexicon/apollo11_lexicon.json")
+    # Get lexicon path from config with fallback to default
+    lexicon_path_str = lexicon_cfg.get("path", "assets/lexicon/apollo11_lexicon.json")
+    lexicon_path = Path(lexicon_path_str)
 
     page_files = sorted(output_dir.glob("Page_*/**/*.json"))
     updated = 0
 
     # Initialize timestamp corrector with None (will pick up first timestamp)
     ts_corrector = TimestampCorrector(initial_ts=None)
+
+    # Initialize tape tracking for validation
+    page_offset = mission_overrides.get("page_offset", 0)
+    tape_x = 1
+    tape_y = 1
+    tape_started = False
+    prev_has_end_of_tape = False
 
     for page_file in page_files:
         try:
@@ -803,6 +835,15 @@ def postprocess_json(pdf_name: str):
         if valid_locations:
             new_blocks = LocationCorrector(valid_locations, invalid_location_annotations).process_blocks(new_blocks)
 
+            # Remove any orphaned location tags from text (like "(TRANQ)", "('TRANQ)", etc.)
+            for block in new_blocks:
+                if block.get("type") == "comm" and block.get("text"):
+                    text = block["text"]
+                    for loc in valid_locations:
+                        # Handle normal and malformed location tags: (TRANQ), ('TRANQ), ("TRANQ), etc.
+                        text = re.sub(rf"\(['\"\s]*{re.escape(loc)}['\"\s.]*\)\s*", " ", text, flags=re.IGNORECASE)
+                    block["text"] = text.strip()
+
         # Clean up problematic blocks
         for block in new_blocks:
             if block.get("type") == "comm":
@@ -834,17 +875,48 @@ def postprocess_json(pdf_name: str):
             new_blocks = [b for b in new_blocks if not (b.get("text") and GOSS_NET_RE.match(str(b.get("text"))))]
 
         payload["blocks"] = new_blocks
-        page_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        updated += 1
 
+        # Update tape validation
         match = re.search(r"_page_(\d{4})\\.json$", page_file.name)
         if match:
             page_num = int(match.group(1)) - 1
+            header = payload.get("header", {})
+            logical_page = page_num + 1 + page_offset
+            header["page"] = logical_page
+
+            # Start tape numbering when logical page reaches 1
+            if not tape_started and logical_page >= 1:
+                tape_started = True
+                tape_y = 1
+
+            # Validate and correct tape using OCR + logic
+            if tape_started:
+                ocr_tape = header.get("tape")
+                tape_x, tape_y, was_corrected = validate_and_correct_tape(
+                    ocr_tape, tape_x, tape_y, prev_has_end_of_tape
+                )
+                header["tape"] = format_tape(tape_x, tape_y)
+            else:
+                header["tape"] = None
+
+            payload["header"] = header
+
+            # Detect END OF TAPE marker for next page's validation
+            prev_has_end_of_tape = any(
+                b.get("type") == "meta"
+                and isinstance(b.get("text"), str)
+                and "END OF TAPE" in b.get("text").upper()
+                for b in new_blocks
+            )
+
             page_timestamps = [
                 b.get("timestamp") for b in new_blocks
                 if b.get("type") == "comm" and b.get("timestamp")
             ]
             ts_index.add_timestamps(page_num, page_timestamps)
+
+        page_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        updated += 1
 
     ts_index.save()
     print(f"Post-processed pages: {updated}")
@@ -867,7 +939,22 @@ def reparse_from_ocr(pdf_name: str):
     valid_speakers = mission_overrides.get("valid_speakers")
     valid_locations = mission_overrides.get("valid_locations")
     lexicon_cfg = global_cfg.pipeline_defaults.get("lexicon", {})
-    mission_keywords = lexicon_cfg.get("mission_keywords") if isinstance(lexicon_cfg, dict) else None
+    # Get lexicon path from config with fallback to default
+    lexicon_path_str = lexicon_cfg.get("path", "assets/lexicon/apollo11_lexicon.json")
+    lexicon_path = Path(lexicon_path_str)
+    global_mission_keywords = (
+        lexicon_cfg.get("mission_keywords")
+        if isinstance(lexicon_cfg, dict)
+        else []
+    )
+    mission_keyword_overrides = mission_overrides.get("mission_keywords", [])
+    mission_keywords: list[str] = []
+    for kw in (global_mission_keywords or []):
+        if kw not in mission_keywords:
+            mission_keywords.append(kw)
+    for kw in (mission_keyword_overrides or []):
+        if kw not in mission_keywords:
+            mission_keywords.append(kw)
 
     global_parser = global_cfg.pipeline_defaults.get("parser", {})
     if isinstance(global_parser, dict):
@@ -928,7 +1015,8 @@ def reparse_from_ocr(pdf_name: str):
             mission_keywords, valid_locations,
             inline_annotation_terms=invalid_location_annotations,
             initial_ts=initial_ts,
-            previous_block_type=previous_block_type
+            previous_block_type=previous_block_type,
+            lexicon_path=lexicon_path
         )
 
         # Optional fallback OCR passes (if files exist)
@@ -944,7 +1032,8 @@ def reparse_from_ocr(pdf_name: str):
                 mission_keywords, valid_locations,
                 inline_annotation_terms=invalid_location_annotations,
                 initial_ts=initial_ts,
-                previous_block_type=previous_block_type
+                previous_block_type=previous_block_type,
+                lexicon_path=lexicon_path
             )
             payload = merge_payloads(payload, fallback_payload)
 
@@ -960,9 +1049,33 @@ def reparse_from_ocr(pdf_name: str):
                 mission_keywords, valid_locations,
                 inline_annotation_terms=invalid_location_annotations,
                 initial_ts=initial_ts,
-                previous_block_type=previous_block_type
+                previous_block_type=previous_block_type,
+                lexicon_path=lexicon_path
             )
             payload = merge_payloads(payload, faint_payload)
+
+        # Deduplicate exact duplicate blocks (same timestamp, speaker, location, and very similar text)
+        blocks = payload.get("blocks", [])
+        deduped_blocks = []
+        for block in blocks:
+            is_duplicate = False
+            if block.get("type") == "comm" and block.get("timestamp"):
+                block_text = block.get("text", "")
+                for existing in deduped_blocks:
+                    if (existing.get("type") == "comm" and
+                        existing.get("timestamp") == block.get("timestamp") and
+                        existing.get("speaker") == block.get("speaker") and
+                        existing.get("location") == block.get("location")):
+                        existing_text = existing.get("text", "")
+                        if block_text and existing_text:
+                            # Check if texts are very similar (> 95% similarity)
+                            ratio = difflib.SequenceMatcher(None, block_text, existing_text).ratio()
+                            if ratio >= 0.95:
+                                is_duplicate = True
+                                break
+            if not is_duplicate:
+                deduped_blocks.append(block)
+        payload["blocks"] = deduped_blocks
 
         # Apply manual speaker corrections by timestamp
         if manual_speaker_corrections:
@@ -977,6 +1090,15 @@ def reparse_from_ocr(pdf_name: str):
 
         if valid_locations:
             payload["blocks"] = LocationCorrector(valid_locations, invalid_location_annotations).process_blocks(payload.get("blocks", []))
+
+            # Remove any orphaned location tags from text (like "(TRANQ)", "('TRANQ)", etc.)
+            for block in payload["blocks"]:
+                if block.get("type") == "comm" and block.get("text"):
+                    text = block["text"]
+                    for loc in valid_locations:
+                        # Handle normal and malformed location tags: (TRANQ), ('TRANQ), ("TRANQ), etc.
+                        text = re.sub(rf"\(['\"\s]*{re.escape(loc)}['\"\s.]*\)\s*", " ", text, flags=re.IGNORECASE)
+                    block["text"] = text.strip()
 
         # Clean up problematic blocks
         for block in payload.get("blocks", []):
@@ -1153,7 +1275,22 @@ def process(
         text_replacements = {**global_replacements, **mission_replacements}
 
         lexicon_cfg = global_cfg.pipeline_defaults.get("lexicon", {})
-        mission_keywords = lexicon_cfg.get("mission_keywords") if isinstance(lexicon_cfg, dict) else None
+        # Get lexicon path from config with fallback to default
+        lexicon_path_str = lexicon_cfg.get("path", "assets/lexicon/apollo11_lexicon.json")
+        lexicon_path = Path(lexicon_path_str)
+        global_mission_keywords = (
+            lexicon_cfg.get("mission_keywords")
+            if isinstance(lexicon_cfg, dict)
+            else []
+        )
+        mission_keyword_overrides = mission_cfg.layout_overrides.get("mission_keywords", [])
+        mission_keywords: list[str] = []
+        for kw in (global_mission_keywords or []):
+            if kw not in mission_keywords:
+                mission_keywords.append(kw)
+        for kw in (mission_keyword_overrides or []):
+            if kw not in mission_keywords:
+                mission_keywords.append(kw)
         valid_speakers = mission_cfg.layout_overrides.get("valid_speakers")
         valid_locations = mission_cfg.layout_overrides.get("valid_locations")
 
@@ -1166,7 +1303,8 @@ def process(
             text_replacements,
             mission_keywords,
             valid_locations,
-            mission_cfg.layout_overrides
+            mission_cfg.layout_overrides,
+            lexicon_path
         )
         if timing:
             for pr in result.page_results:

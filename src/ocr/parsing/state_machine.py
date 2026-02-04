@@ -136,13 +136,16 @@ def parse_ocr_text(
                 cleaned = token.rstrip("?")
                 # If valid_speakers is provided, only consume tokens that match
                 if valid_speakers:
-                    # If token is a prefix of a known multi-token speaker, don't consume partially.
-                    prefix = f"{cleaned.upper()} "
-                    if any(v.startswith(prefix) for v in valid_speaker_set):
-                        break
-                    # Check if token fuzzy matches any valid speaker
-                    matches = difflib.get_close_matches(cleaned.upper(), valid_speakers, n=1, cutoff=0.7)
+                    cleaned_upper = cleaned.upper()
+                    # Check if token is exact match or fuzzy match first
+                    is_exact_match = cleaned_upper in valid_speaker_set
+                    matches = difflib.get_close_matches(cleaned_upper, valid_speakers, n=1, cutoff=0.7) if not is_exact_match else [cleaned_upper]
+
                     if not matches:
+                        # If token is a prefix of a known multi-token speaker, don't consume partially.
+                        prefix = f"{cleaned_upper} "
+                        if any(v.startswith(prefix) for v in valid_speaker_set):
+                            break
                         # Token doesn't match any valid speaker, stop consuming
                         break
                 speaker_tokens.append(cleaned)

@@ -36,6 +36,8 @@ header_ratio = 0.10 # Header zone ratio
 mission_keywords = [
     "CARNARVON", "TANANARIVE", "GUAM", "MADRID", "ASCENSION",
     "BERMUDA", "CANARY", "HONOLULU", "GOLDSTONE", "MILA",
+    "ARIA",  # Apollo Range Instrumented Aircraft (tracking aircraft)
+    "TEXAS",  # USS Texas (tracking ship)
     "TEI", "TLI", "LOI", "COI", "EVA", "LM", "CSM", "CMC", "LGC", "DSKY",
     "GRAND BAHAMA ISLANDS", "GRAND BAHAMA ISLAND", "GUAYMAS", "VANGUARD", "HONEYSUCKLE",
     # Technical terms with hyphens (preserve exact format for OCR correction)

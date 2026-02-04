@@ -31,19 +31,11 @@ from .utils import (
     clean_leading_footer_noise,
     extract_header_metadata,
 )
+from src.utils.station_normalization import match_station_name
 
 
 EMBEDDED_TIMESTAMP_RE = re.compile(
     r"\(?\b[0-9OIil]{1,2}[:\s-][0-9OIil]{1,2}[:\s-][0-9OIil]{1,2}[ .:\-][0-9OIil]{1,2}\b\)?"
-)
-SECONDARY_EMBEDDED_RE = re.compile(
-    r"(?<!\d)"
-    r"([0-9OIilCSB]{1,2})[^0-9OIilCSB]+"
-    r"([0-9OIilCSB]{1,2})[^0-9OIilCSB]+"
-    r"([0-9OIilCSB]{1,2})[^0-9OIilCSB]+"
-    r"([0-9OIilCSB]{1,2})"
-    r"\s+([A-Z0-9]{1,8}(?:/[A-Z0-9]{1,8})?)",
-    re.IGNORECASE,
 )
 
 PAREN_RADIO_CALL_RE = re.compile(
@@ -73,21 +65,6 @@ def _normalize_embedded_timestamp(raw: str) -> str | None:
     return " ".join(parts)
 
 
-def _normalize_embedded_groups(groups: tuple[str, str, str, str]) -> str:
-    def norm(token: str) -> str:
-        token = token.replace("O", "0").replace("o", "0")
-        token = token.replace("I", "1").replace("i", "1").replace("l", "1")
-        token = token.replace("C", "0").replace("c", "0")
-        token = token.replace("S", "5").replace("s", "5")
-        token = token.replace("B", "8").replace("b", "8")
-        if len(token) == 1:
-            token = f"0{token}"
-        return token
-
-    parts = [norm(g) for g in groups]
-    return " ".join(parts)
-
-
 def split_embedded_timestamp_blocks(blocks: list[dict]) -> list[dict]:
     """
     Split blocks that contain embedded timestamps inside their text.
@@ -100,9 +77,6 @@ def split_embedded_timestamp_blocks(blocks: list[dict]) -> list[dict]:
             continue
 
         matches = list(EMBEDDED_TIMESTAMP_RE.finditer(text))
-        # DISABLED: SECONDARY_EMBEDDED_RE is too aggressive and creates false positives
-        # if not matches:
-        #     matches = list(SECONDARY_EMBEDDED_RE.finditer(text))
         if not matches:
             output.append(block)
             continue
@@ -114,14 +88,9 @@ def split_embedded_timestamp_blocks(blocks: list[dict]) -> list[dict]:
             output.append(base_block)
 
         for idx, match in enumerate(matches):
-            if match.re is SECONDARY_EMBEDDED_RE:
-                ts = _normalize_embedded_groups(match.group(1, 2, 3, 4))
-                speaker = match.group(5).rstrip(":")
-                seg_start = match.end()
-            else:
-                ts = _normalize_embedded_timestamp(match.group(0))
-                speaker = None
-                seg_start = match.end()
+            ts = _normalize_embedded_timestamp(match.group(0))
+            speaker = None
+            seg_start = match.end()
             if not ts:
                 continue
             seg_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
@@ -195,6 +164,16 @@ def merge_duplicate_comm_timestamps(blocks: list[dict]) -> list[dict]:
                     prev_text = prev.get("text", "")
                     new_text = block["text"]
                     if prev_text and new_text:
+                        # Check if texts are significantly different (not just OCR splits)
+                        # If they share < 30% of words, they're likely separate quotes - don't merge
+                        prev_words = set(prev_text.lower().split())
+                        new_words = set(new_text.lower().split())
+                        if prev_words and new_words:
+                            overlap = len(prev_words & new_words) / min(len(prev_words), len(new_words))
+                            if overlap < 0.3:
+                                # Different quotes at same timestamp - don't merge, add as separate block
+                                merged.append(block)
+                                continue
                         # Same timestamp duplicates are usually OCR splits; keep the most complete variant.
                         prev["text"] = new_text if len(new_text) > len(prev_text) else prev_text
                     else:
@@ -262,6 +241,16 @@ def merge_nearby_duplicate_timestamps(blocks: list[dict], window: int = 4) -> li
         if block.get("text"):
             prev_text = prev.get("text", "")
             new_text = block["text"]
+            # Check if texts are significantly different
+            if prev_text and new_text:
+                prev_words = set(prev_text.lower().split())
+                new_words = set(new_text.lower().split())
+                if prev_words and new_words:
+                    overlap = len(prev_words & new_words) / min(len(prev_words), len(new_words))
+                    if overlap < 0.3:
+                        # Different quotes - don't merge
+                        merged.append(block)
+                        continue
             prev["text"] = new_text if len(new_text) > len(prev_text) else prev_text
         if not prev.get("timestamp_correction") and block.get("timestamp_correction"):
             prev["timestamp_correction"] = block.get("timestamp_correction")
@@ -414,6 +403,7 @@ def build_page_json(
     inline_annotation_terms: list[str] | None = None,
     initial_ts: str | None = None,
     previous_block_type: str | None = None,
+    lexicon_path: Path | None = None,
 ) -> dict:
     """
     Build final page JSON from parsed rows with all corrections applied.
@@ -594,61 +584,6 @@ def build_page_json(
     # Match uppercase station-like names only, to avoid capturing normal prose.
     annotation_pattern = re.compile(r"\b([A-Z]{3,}(?:\s+[A-Z]{2,}){0,4})\s*\((REV|PASS)\s*(\d+)\)\s*")
     keyword_candidates = [kw.upper() for kw in (mission_keywords or [])]
-    keyword_tokens = {
-        kw: [tok for tok in kw.split() if tok]
-        for kw in keyword_candidates
-    }
-
-    def station_variants(station: str) -> list[str]:
-        normalized = re.sub(r"[^A-Z0-9 ]", "", station.upper())
-        tokens = [tok for tok in normalized.split() if tok]
-        if not tokens:
-            return []
-
-        variants: list[str] = []
-        max_shift = min(2, len(tokens) - 1)
-        for shift in range(max_shift + 1):
-            variant_tokens = tokens[shift:]
-            # Drop common connective prefix words that OCR often keeps in station snippets.
-            while variant_tokens and variant_tokens[0] in {"AND", "THE", "AT", "IN", "ON", "OF"}:
-                variant_tokens = variant_tokens[1:]
-            if variant_tokens:
-                variants.append(" ".join(variant_tokens))
-
-        # De-duplicate while preserving order.
-        seen: set[str] = set()
-        deduped: list[str] = []
-        for var in variants:
-            if var not in seen:
-                seen.add(var)
-                deduped.append(var)
-        return deduped
-
-    def match_station_name(station: str) -> str | None:
-        variants = station_variants(station)
-        if not variants:
-            return None
-        for variant in variants:
-            if variant in keyword_candidates:
-                return variant
-
-        best_kw: str | None = None
-        best_score = 0.0
-        for variant in variants:
-            var_tokens = variant.split()
-            for kw in keyword_candidates:
-                score = difflib.SequenceMatcher(None, variant, kw).ratio()
-                kw_toks = keyword_tokens.get(kw, [])
-                if var_tokens and kw_toks:
-                    if var_tokens[-1] == kw_toks[-1]:
-                        score += 0.04
-                    overlap = len(set(var_tokens) & set(kw_toks))
-                    score += 0.02 * overlap
-                if score > best_score:
-                    best_score = score
-                    best_kw = kw
-
-        return best_kw if best_score >= 0.64 else None
 
     for block in blocks:
         if block.get("text"):
@@ -673,7 +608,7 @@ def build_page_json(
                     number = annotation_match.group(3)
 
                     # If mission keywords are available, only extract known station-like terms.
-                    matched_station = match_station_name(station)
+                    matched_station = match_station_name(station, keyword_candidates)
                     if mission_keywords and not matched_station:
                         break
                     station_label = matched_station or station
@@ -685,20 +620,24 @@ def build_page_json(
                 if annotations:
                     block["text"] = current_text
 
-                    # Remove any residual location tag at the start: "(TRANQ) ..."
+                    # Remove any residual location tags (from anywhere in text): "(TRANQ) ..."
                     if valid_locations:
                         for loc in valid_locations:
-                            block["text"] = re.sub(rf"^\({re.escape(loc)}\)\s*", "", block["text"], flags=re.IGNORECASE)
+                            # Remove location tags from anywhere in the text
+                            block["text"] = re.sub(rf"\(\s*{re.escape(loc)}\s*\)\s*", " ", block["text"], flags=re.IGNORECASE)
+                            block["text"] = block["text"].strip()
 
                     cleaned_blocks.append(block)
                     for annotation_text in annotations:
                         cleaned_blocks.append({"type": "annotation", "text": annotation_text})
                     continue
 
-            # Remove any residual location tag at the start: "(TRANQ) ..."
+            # Remove any residual location tags (from anywhere in text): "(TRANQ) ..."
             if valid_locations:
                 for loc in valid_locations:
-                    text = re.sub(rf"^\({re.escape(loc)}\)\s*", "", text, flags=re.IGNORECASE)
+                    # Remove location tags from anywhere in the text
+                    text = re.sub(rf"\(\s*{re.escape(loc)}\s*\)\s*", " ", text, flags=re.IGNORECASE)
+                    text = text.strip()
             block["text"] = text.strip()
 
         cleaned_blocks.append(block)
@@ -721,7 +660,8 @@ def build_page_json(
         blocks = SpeakerCorrector(valid_speakers).process_blocks(blocks)
 
     # Text correction
-    lexicon_path = Path("assets/lexicon/apollo11_lexicon.json")
+    if lexicon_path is None:
+        lexicon_path = Path("assets/lexicon/apollo11_lexicon.json")
     if lexicon_path.exists():
         blocks = TextCorrector(lexicon_path, text_replacements, mission_keywords).process_blocks(blocks)
         blocks = [

@@ -74,7 +74,7 @@ def clean_trailing_footer(text: str) -> str:
 
 def extract_header_metadata(lines: list[str], page_num: int, page_offset: int = 0) -> dict:
     """Extract page/tape metadata from header lines."""
-    from .patterns import TIMESTAMP_STRICT_RE, TIMESTAMP_PREFIX_RE
+    from .patterns import TIMESTAMP_STRICT_RE, TIMESTAMP_PREFIX_RE, HEADER_TAPE_RE
 
     result = {"page": page_num + 1 + page_offset, "tape": None, "is_apollo_title": False}
     first_ts_idx = next(
@@ -86,4 +86,12 @@ def extract_header_metadata(lines: list[str], page_num: int, page_offset: int = 
         norm = normalize_whitespace(line).upper()
         if fuzzy_find(norm, "APOLLO") and fuzzy_find(norm, "TRANSCRIPTION"):
             result["is_apollo_title"] = True
+
+        # Extract tape number from OCR if present (e.g., "Tape 1/8")
+        tape_match = HEADER_TAPE_RE.search(line)
+        if tape_match:
+            # Normalize the tape format (remove extra spaces)
+            tape_str = tape_match.group(1).replace(" ", "")
+            result["tape"] = tape_str
+
     return result

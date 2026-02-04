@@ -51,33 +51,11 @@ def collect_page_jsons(output_dir: Path, pdf_stem: str) -> list[PageBundle]:
 
 def build_global_json(pdf_stem: str, pages: list[PageBundle]) -> dict:
     page_map: dict[str, dict] = {}
-    tape_x = 1
-    tape_y = 1
-    tape_started = False
     for page in pages:
         page_num = page.page_num
         header = dict(page.header or {})
-        logical_page = header.get("page", page_num)
-        if not tape_started and isinstance(logical_page, int) and logical_page >= 1:
-            tape_started = True
-            tape_y = 1
-        if tape_started:
-            header["tape"] = f"{tape_x}/{tape_y}"
-        else:
-            header["tape"] = None
-
-        end_of_tape = any(
-            (b.get("meta_type") == "end_of_tape")
-            or ("END OF TAPE" in (b.get("text") or "").upper())
-            for b in page.blocks
-        )
-        rest_period = header.get("page_type") == "rest_period"
-        if tape_started:
-            if end_of_tape or rest_period:
-                tape_x += 1
-                tape_y = 1
-            else:
-                tape_y += 1
+        # Tape numbers are already validated and correct in per-page JSONs
+        # from main.py process/reparse, so just use them as-is
 
         key = f"Page {page_num:03d}"
         cleaned_blocks: list[dict] = []

@@ -61,6 +61,7 @@ from src.processors.page_extractor import get_pdf_info
 from src.utils.console import PipelineConsole
 from src.utils.console import console as rich_console
 from src.utils.merge_export import write_global_outputs
+from src.utils.tape_validator import validate_and_correct_tape, format_tape
 
 # Initialize console manager
 console = PipelineConsole()
@@ -382,6 +383,7 @@ def run_ocr_pipeline(
     tape_x = 1
     tape_y = 1
     tape_started = False
+    prev_has_end_of_tape = False
     for pr in page_results:
         if not pr.success or not pr.output:
             continue
@@ -568,11 +570,32 @@ def run_ocr_pipeline(
             header = payload.get("header", {})
             logical_page = page_num + 1 + page_offset
             header["page"] = logical_page
+
+            # Start tape numbering when logical page reaches 1
             if not tape_started and logical_page >= 1:
                 tape_started = True
                 tape_y = 1
-            header["tape"] = f"{tape_x}/{tape_y}" if tape_started else None
+
+            # Validate and correct tape using OCR + logic
+            if tape_started:
+                ocr_tape = header.get("tape")
+                tape_x, tape_y, was_corrected = validate_and_correct_tape(
+                    ocr_tape, tape_x, tape_y, prev_has_end_of_tape
+                )
+                header["tape"] = format_tape(tape_x, tape_y)
+            else:
+                header["tape"] = None
+
             payload["header"] = header
+
+            # Detect END OF TAPE marker for next page's validation
+            blocks = payload.get("blocks", [])
+            prev_has_end_of_tape = any(
+                b.get("type") == "meta"
+                and isinstance(b.get("text"), str)
+                and "END OF TAPE" in b.get("text").upper()
+                for b in blocks
+            )
 
             # Update index
             t0 = time.perf_counter()
@@ -616,25 +639,11 @@ def run_ocr_pipeline(
             )
             console.update_ocr_progress(page_num, page_duration, timing_info=timing_info)
 
-            blocks = payload.get("blocks", [])
+            # Update previous_block_type for continuation handling
             if blocks:
                 previous_block_type = blocks[-1].get("type")
             else:
                 previous_block_type = None
-
-            end_of_tape = any(
-                b.get("type") == "meta"
-                and isinstance(b.get("text"), str)
-                and "END OF TAPE" in b.get("text").upper()
-                for b in payload.get("blocks", [])
-            )
-            if end_of_tape:
-                if tape_started:
-                    tape_x += 1
-                    tape_y = 1
-            else:
-                if tape_started:
-                    tape_y += 1
 
             # Small pause to let the OCR server breathe/cleanup VRAM
             time.sleep(0.5)
@@ -856,6 +865,7 @@ def reparse_from_ocr(pdf_name: str):
     tape_x = 1
     tape_y = 1
     tape_started = False
+    prev_has_end_of_tape = False
     previous_block_type = None
     updated = 0
 
@@ -958,42 +968,49 @@ def reparse_from_ocr(pdf_name: str):
         header = payload.get("header", {})
         logical_page = page_num + 1 + mission_cfg.page_offset
         header["page"] = logical_page
+
+        # Get blocks for tape validation
+        blocks = payload.get("blocks", [])
+
+        # Start tape numbering when logical page reaches 1
         if not tape_started and logical_page >= 1:
             tape_started = True
             tape_y = 1
-        header["tape"] = f"{tape_x}/{tape_y}" if tape_started else None
+
+        # Validate and correct tape using OCR + logic
+        if tape_started:
+            ocr_tape = header.get("tape")
+            tape_x, tape_y, was_corrected = validate_and_correct_tape(
+                ocr_tape, tape_x, tape_y, prev_has_end_of_tape
+            )
+            header["tape"] = format_tape(tape_x, tape_y)
+        else:
+            header["tape"] = None
+
         payload["header"] = header
+
+        # Detect END OF TAPE marker for next page's validation
+        prev_has_end_of_tape = any(
+            b.get("type") == "meta"
+            and isinstance(b.get("text"), str)
+            and "END OF TAPE" in b.get("text").upper()
+            for b in blocks
+        )
 
         # Update index
         page_timestamps = [
-            b.get("timestamp") for b in payload.get("blocks", [])
+            b.get("timestamp") for b in blocks
             if b.get("type") == "comm" and b.get("timestamp")
         ]
         ts_index.add_timestamps(page_num, page_timestamps)
 
         # Update previous_block_type for continuation handling
-        blocks = payload.get("blocks", [])
         previous_block_type = blocks[-1].get("type") if blocks else None
 
         # Persist page JSON
         page_json = page_dir / f"{page_id}.json"
         page_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         updated += 1
-
-        # Tape incrementing (same logic as OCR pipeline)
-        end_of_tape = any(
-            b.get("type") == "meta"
-            and isinstance(b.get("text"), str)
-            and "END OF TAPE" in b.get("text").upper()
-            for b in payload.get("blocks", [])
-        )
-        if end_of_tape:
-            if tape_started:
-                tape_x += 1
-                tape_y = 1
-        else:
-            if tape_started:
-                tape_y += 1
 
     ts_index.save()
     print(f"Reparsed pages from OCR text: {updated}")

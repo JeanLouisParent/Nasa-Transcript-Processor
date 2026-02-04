@@ -46,6 +46,8 @@ from src.ocr.parsing.block_builder import (
     merge_duplicate_comm_timestamps,
     merge_nearby_duplicate_timestamps,
     remove_repeated_phrases,
+    clean_or_merge_continuations,
+    merge_inline_annotations,
 )
 from src.ocr.parsing.patterns import GOSS_NET_RE
 from src.ocr.parsing.patterns import (
@@ -423,6 +425,7 @@ def run_ocr_pipeline(
                 rows, lines, page_num, page_offset,
                 valid_speakers, text_replacements,
                 mission_keywords, valid_locations,
+                inline_annotation_terms=invalid_location_annotations,
                 initial_ts=initial_ts,
                 previous_block_type=previous_block_type
             )
@@ -453,6 +456,7 @@ def run_ocr_pipeline(
                     fallback_rows, fallback_lines, page_num, page_offset,
                     valid_speakers, text_replacements,
                     mission_keywords, valid_locations,
+                    inline_annotation_terms=invalid_location_annotations,
                     initial_ts=initial_ts,
                     previous_block_type=previous_block_type
                 )
@@ -485,6 +489,7 @@ def run_ocr_pipeline(
                     faint_rows, faint_lines, page_num, page_offset,
                     valid_speakers, text_replacements,
                     mission_keywords, valid_locations,
+                    inline_annotation_terms=invalid_location_annotations,
                     initial_ts=initial_ts,
                     previous_block_type=previous_block_type
                 )
@@ -731,6 +736,8 @@ def postprocess_json(pdf_name: str):
         new_blocks = split_embedded_timestamp_blocks(blocks)
         new_blocks = merge_duplicate_comm_timestamps(new_blocks)
         new_blocks = merge_nearby_duplicate_timestamps(new_blocks)
+        new_blocks = clean_or_merge_continuations(new_blocks)
+        new_blocks = merge_inline_annotations(new_blocks, invalid_location_annotations)
         for block in new_blocks:
             if block.get("type") == "comm" and block.get("text"):
                 block["text"] = remove_repeated_phrases(block["text"])
@@ -797,6 +804,199 @@ def postprocess_json(pdf_name: str):
 
     ts_index.save()
     print(f"Post-processed pages: {updated}")
+
+@cli.command("reparse")
+@click.argument("pdf_name")
+def reparse_from_ocr(pdf_name: str):
+    """Reparse pages from stored OCR text files without rerunning OCR."""
+    setup_logging()
+    global_cfg = load_global_config(Path("config/defaults.toml"))
+    pdf_path = resolve_pdf_path(pdf_name, global_cfg.input_dir)
+    if not pdf_path.exists():
+        print(f"Error: PDF not found: {pdf_path}")
+        raise SystemExit(1)
+
+    mission_cfg = load_mission_config(Path("config"), pdf_path.name)
+    mission_overrides = mission_cfg.layout_overrides or {}
+
+    # Configs
+    valid_speakers = mission_overrides.get("valid_speakers")
+    valid_locations = mission_overrides.get("valid_locations")
+    lexicon_cfg = global_cfg.pipeline_defaults.get("lexicon", {})
+    mission_keywords = lexicon_cfg.get("mission_keywords") if isinstance(lexicon_cfg, dict) else None
+
+    global_parser = global_cfg.pipeline_defaults.get("parser", {})
+    if isinstance(global_parser, dict):
+        global_replacements = global_parser.get("text_replacements", {})
+    else:
+        global_replacements = {}
+    mission_replacements = mission_overrides.get("text_replacements", {})
+    text_replacements = {**global_replacements, **mission_replacements}
+
+    global_correctors = global_cfg.pipeline_defaults.get("correctors", {})
+    global_speaker_ocr_fixes = global_correctors.get("speaker_ocr_fixes", {})
+    mission_speaker_ocr_fixes = mission_overrides.get("speaker_ocr_fixes", {})
+    speaker_ocr_fixes = {**global_speaker_ocr_fixes, **mission_speaker_ocr_fixes}
+    invalid_location_annotations = global_correctors.get("invalid_location_annotations", {}).get("annotations", [])
+    manual_speaker_corrections = mission_overrides.get("manual_speaker_corrections", {})
+
+    output_dir = global_cfg.output_dir / pdf_path.stem / "pages"
+    if not output_dir.exists():
+        print(f"Error: output not found: {output_dir}")
+        raise SystemExit(1)
+
+    index_path = global_cfg.state_dir / f"{pdf_path.stem}_timestamps_index.json"
+    ts_index = GlobalTimestampIndex(index_path)
+
+    page_dirs = sorted(
+        output_dir.glob("Page_*"),
+        key=lambda p: int(re.search(r"(\d+)$", p.name).group(1)) if re.search(r"(\d+)$", p.name) else 0
+    )
+
+    tape_x = 1
+    tape_y = 1
+    tape_started = False
+    previous_block_type = None
+    updated = 0
+
+    for page_dir in page_dirs:
+        ocr_dir = page_dir / "ocr"
+        raw_paths = sorted(ocr_dir.glob("*_ocr_raw.txt"))
+        if not raw_paths:
+            continue
+        raw_path = raw_paths[0]
+
+        match = re.search(r"_page_(\d{4})_ocr_raw\.txt$", raw_path.name)
+        if not match:
+            continue
+        page_num = int(match.group(1)) - 1
+        page_id = f"{pdf_path.stem}_page_{page_num + 1:04d}"
+
+        raw_text = raw_path.read_text(encoding="utf-8")
+        text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        rows = parse_ocr_text(text, page_num, mission_keywords)
+        initial_ts = ts_index.get_last_timestamp_before(page_num)
+        payload = build_page_json(
+            rows, lines, page_num, mission_cfg.page_offset,
+            valid_speakers, text_replacements,
+            mission_keywords, valid_locations,
+            inline_annotation_terms=invalid_location_annotations,
+            initial_ts=initial_ts,
+            previous_block_type=previous_block_type
+        )
+
+        # Optional fallback OCR passes (if files exist)
+        raw_fallback_paths = sorted(ocr_dir.glob("*_ocr_raw_fallback.txt"))
+        if raw_fallback_paths:
+            raw_fallback = raw_fallback_paths[0].read_text(encoding="utf-8")
+            raw_fallback = raw_fallback.replace("\r\n", "\n").replace("\r", "\n")
+            fallback_lines = [line.strip() for line in raw_fallback.splitlines() if line.strip()]
+            fallback_rows = parse_ocr_text(raw_fallback, page_num, mission_keywords)
+            fallback_payload = build_page_json(
+                fallback_rows, fallback_lines, page_num, mission_cfg.page_offset,
+                valid_speakers, text_replacements,
+                mission_keywords, valid_locations,
+                inline_annotation_terms=invalid_location_annotations,
+                initial_ts=initial_ts,
+                previous_block_type=previous_block_type
+            )
+            payload = merge_payloads(payload, fallback_payload)
+
+        faint_paths = sorted(ocr_dir.glob("*_ocr_faint_fallback.txt"))
+        if faint_paths:
+            faint_text = faint_paths[0].read_text(encoding="utf-8")
+            faint_text = faint_text.replace("\r\n", "\n").replace("\r", "\n")
+            faint_lines = [line.strip() for line in faint_text.splitlines() if line.strip()]
+            faint_rows = parse_ocr_text(faint_text, page_num, mission_keywords)
+            faint_payload = build_page_json(
+                faint_rows, faint_lines, page_num, mission_cfg.page_offset,
+                valid_speakers, text_replacements,
+                mission_keywords, valid_locations,
+                inline_annotation_terms=invalid_location_annotations,
+                initial_ts=initial_ts,
+                previous_block_type=previous_block_type
+            )
+            payload = merge_payloads(payload, faint_payload)
+
+        # Apply manual speaker corrections by timestamp
+        if manual_speaker_corrections:
+            for block in payload.get("blocks", []):
+                if block.get("type") == "comm" and block.get("timestamp"):
+                    ts = block["timestamp"]
+                    if ts in manual_speaker_corrections:
+                        block["speaker"] = manual_speaker_corrections[ts]
+
+        if valid_speakers:
+            payload["blocks"] = SpeakerCorrector(valid_speakers, speaker_ocr_fixes).process_blocks(payload.get("blocks", []))
+
+        if valid_locations:
+            payload["blocks"] = LocationCorrector(valid_locations, invalid_location_annotations).process_blocks(payload.get("blocks", []))
+
+        # Clean up problematic blocks
+        for block in payload.get("blocks", []):
+            if block.get("type") == "comm":
+                text_val = block.get("text", "").strip()
+                if text_val.startswith("--") and "LUNAR REV" in text_val.upper():
+                    block["type"] = "meta"
+                    block.pop("speaker", None)
+                    block.pop("location", None)
+                elif text_val.startswith("(") and ("UNIDENTIFIABLE" in text_val.upper() or "UNINDENTIFIABLE" in text_val.upper()):
+                    block["type"] = "annotation"
+                    block.pop("speaker", None)
+                    block.pop("location", None)
+
+        payload["blocks"] = [
+            b for b in payload.get("blocks", [])
+            if not (b.get("type") == "comm" and
+                    not b.get("speaker") and
+                    (len(b.get("text", "").strip()) < 10 or
+                     b.get("text", "").strip() in (".", ". Over.", "Over.")))
+        ]
+
+        # Recompute page/tape metadata
+        header = payload.get("header", {})
+        logical_page = page_num + 1 + mission_cfg.page_offset
+        header["page"] = logical_page
+        if not tape_started and logical_page >= 1:
+            tape_started = True
+            tape_y = 1
+        header["tape"] = f"{tape_x}/{tape_y}" if tape_started else None
+        payload["header"] = header
+
+        # Update index
+        page_timestamps = [
+            b.get("timestamp") for b in payload.get("blocks", [])
+            if b.get("type") == "comm" and b.get("timestamp")
+        ]
+        ts_index.add_timestamps(page_num, page_timestamps)
+
+        # Update previous_block_type for continuation handling
+        blocks = payload.get("blocks", [])
+        previous_block_type = blocks[-1].get("type") if blocks else None
+
+        # Persist page JSON
+        page_json = page_dir / f"{page_id}.json"
+        page_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        updated += 1
+
+        # Tape incrementing (same logic as OCR pipeline)
+        end_of_tape = any(
+            b.get("type") == "meta"
+            and isinstance(b.get("text"), str)
+            and "END OF TAPE" in b.get("text").upper()
+            for b in payload.get("blocks", [])
+        )
+        if end_of_tape:
+            if tape_started:
+                tape_x += 1
+                tape_y = 1
+        else:
+            if tape_started:
+                tape_y += 1
+
+    ts_index.save()
+    print(f"Reparsed pages from OCR text: {updated}")
 
 @cli.command()
 @click.argument("pdf_name")

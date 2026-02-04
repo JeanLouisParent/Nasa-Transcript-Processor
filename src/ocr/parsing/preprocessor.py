@@ -11,6 +11,44 @@ from .patterns import (
     SPEAKER_TOKEN_RE,
 )
 
+TIMESTAMP_ANY_SEP_RE = re.compile(
+    r"(?<!\d)"
+    r"((?=[0-9OIilCSB]*\d)[0-9OIilCSB]{1,2})"
+    r"[^0-9OIilCSB]+"
+    r"((?=[0-9OIilCSB]*\d)[0-9OIilCSB]{1,2})"
+    r"[^0-9OIilCSB]+"
+    r"((?=[0-9OIilCSB]*\d)[0-9OIilCSB]{1,2})"
+    r"[^0-9OIilCSB]+"
+    r"((?=[0-9OIilCSB]*\d)[0-9OIilCSB]{1,2})"
+    r"(?!\d)"
+)
+
+
+def _normalize_ts_token(token: str) -> str:
+    token = token.replace("O", "0").replace("o", "0")
+    token = token.replace("I", "1").replace("i", "1").replace("l", "1")
+    token = token.replace("C", "0").replace("c", "0")
+    token = token.replace("S", "5").replace("s", "5")
+    token = token.replace("B", "8").replace("b", "8")
+    token = token.replace("°", "0")
+    if len(token) == 1:
+        token = f"0{token}"
+    return token
+
+
+def normalize_timestamp_noise(line: str) -> str:
+    """
+    Normalize timestamp-like chunks so the parser can recognize them.
+    """
+    def repl(match: re.Match) -> str:
+        a = _normalize_ts_token(match.group(1))
+        b = _normalize_ts_token(match.group(2))
+        c = _normalize_ts_token(match.group(3))
+        d = _normalize_ts_token(match.group(4))
+        return f"{a} {b} {c} {d}"
+
+    return TIMESTAMP_ANY_SEP_RE.sub(repl, line)
+
 
 def should_split_embedded_timestamp(line: str, match: re.Match) -> bool:
     """
@@ -43,6 +81,7 @@ def preprocess_lines(text: str, mission_keywords: list[str] | None = None) -> li
         line = line.strip()
         if not line:
             continue
+        line = normalize_timestamp_noise(line)
         # Normalize fractional seconds like "03 10 47 .1" -> "03 10 47 11"
         line = re.sub(r"\b(\d{2}\s+\d{2}\s+\d{2})\s+\.(\d)\b", r"\1 1\2", line)
         raw_lines.append(line)

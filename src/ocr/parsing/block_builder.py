@@ -26,23 +26,51 @@ from .utils import fuzzy_find, is_transcription_header, clean_trailing_footer, e
 
 
 EMBEDDED_TIMESTAMP_RE = re.compile(
-    r"\(?\b[0-9OIil]{2}[:\s][0-9OIil]{2}[:\s][0-9OIil]{2}[ .:][0-9OIil]{2}\b\)?"
+    r"\(?\b[0-9OIil]{1,2}[:\s-][0-9OIil]{1,2}[:\s-][0-9OIil]{1,2}[ .:\-][0-9OIil]{1,2}\b\)?"
+)
+SECONDARY_EMBEDDED_RE = re.compile(
+    r"(?<!\d)"
+    r"([0-9OIilCSB]{1,2})[^0-9OIilCSB]+"
+    r"([0-9OIilCSB]{1,2})[^0-9OIilCSB]+"
+    r"([0-9OIilCSB]{1,2})[^0-9OIilCSB]+"
+    r"([0-9OIilCSB]{1,2})"
+    r"\s+([A-Z0-9]{1,8}(?:/[A-Z0-9]{1,8})?)",
+    re.IGNORECASE,
 )
 
 
 def _normalize_embedded_timestamp(raw: str) -> str | None:
-    chars = re.findall(r"[0-9OIil]", raw)
+    chars = re.findall(r"[0-9OIilCSB]", raw)
     if len(chars) < 8:
         return None
     digits: list[str] = []
     for c in chars[:8]:
-        if c in ("O", "o"):
+        if c in ("O", "o", "C", "c"):
             digits.append("0")
         elif c in ("I", "i", "l"):
             digits.append("1")
+        elif c in ("S", "s"):
+            digits.append("5")
+        elif c in ("B", "b"):
+            digits.append("8")
         else:
             digits.append(c)
     parts = ["".join(digits[i:i + 2]) for i in range(0, 8, 2)]
+    return " ".join(parts)
+
+
+def _normalize_embedded_groups(groups: tuple[str, str, str, str]) -> str:
+    def norm(token: str) -> str:
+        token = token.replace("O", "0").replace("o", "0")
+        token = token.replace("I", "1").replace("i", "1").replace("l", "1")
+        token = token.replace("C", "0").replace("c", "0")
+        token = token.replace("S", "5").replace("s", "5")
+        token = token.replace("B", "8").replace("b", "8")
+        if len(token) == 1:
+            token = f"0{token}"
+        return token
+
+    parts = [norm(g) for g in groups]
     return " ".join(parts)
 
 
@@ -53,11 +81,13 @@ def split_embedded_timestamp_blocks(blocks: list[dict]) -> list[dict]:
     output: list[dict] = []
     for block in blocks:
         text = block.get("text")
-        if not text or not EMBEDDED_TIMESTAMP_RE.search(text):
+        if not text:
             output.append(block)
             continue
 
         matches = list(EMBEDDED_TIMESTAMP_RE.finditer(text))
+        if not matches:
+            matches = list(SECONDARY_EMBEDDED_RE.finditer(text))
         if not matches:
             output.append(block)
             continue
@@ -69,18 +99,23 @@ def split_embedded_timestamp_blocks(blocks: list[dict]) -> list[dict]:
             output.append(base_block)
 
         for idx, match in enumerate(matches):
-            ts = _normalize_embedded_timestamp(match.group(0))
+            if match.re is SECONDARY_EMBEDDED_RE:
+                ts = _normalize_embedded_groups(match.group(1, 2, 3, 4))
+                speaker = match.group(5).rstrip(":")
+                seg_start = match.end()
+            else:
+                ts = _normalize_embedded_timestamp(match.group(0))
+                speaker = None
+                seg_start = match.end()
             if not ts:
                 continue
-            seg_start = match.end()
             seg_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
             seg_text = text[seg_start:seg_end].strip()
 
-            speaker = None
             location = None
             if seg_text:
                 tokens = seg_text.split()
-                if tokens and SPEAKER_TOKEN_RE.match(tokens[0]):
+                if speaker is None and tokens and SPEAKER_TOKEN_RE.match(tokens[0]):
                     speaker = tokens[0].rstrip(":")
                     seg_text = " ".join(tokens[1:]).strip()
                 if seg_text.startswith("("):
@@ -218,6 +253,74 @@ def merge_nearby_duplicate_timestamps(blocks: list[dict], window: int = 4) -> li
     return merged
 
 
+def clean_or_merge_continuations(blocks: list[dict]) -> list[dict]:
+    """
+    Merge non-leading continuation blocks into the previous block when possible.
+    Drop exact duplicates. Preserve lines that contain embedded timestamps.
+    """
+    cleaned: list[dict] = []
+    for idx, block in enumerate(blocks):
+        if block.get("type") != "continuation":
+            cleaned.append(block)
+            continue
+
+        text = (block.get("text") or "").strip()
+        if not text:
+            continue
+
+        if EMBEDDED_TIMESTAMP_RE.search(text):
+            cleaned.append(block)
+            continue
+
+        if cleaned:
+            prev = cleaned[-1]
+            prev_text = (prev.get("text") or "").strip()
+            if prev_text == text or text in prev_text:
+                continue
+            if prev_text:
+                prev["text"] = (prev_text + " " + text).strip()
+            else:
+                prev["text"] = text
+        else:
+            cleaned.append(block)
+
+    return cleaned
+
+
+def merge_inline_annotations(blocks: list[dict], inline_terms: list[str] | None = None) -> list[dict]:
+    """
+    Merge standalone annotation tags into the previous comm block or convert to comm.
+    """
+    if not inline_terms:
+        return blocks
+    terms = {t.upper().strip() for t in inline_terms if t}
+    cleaned: list[dict] = []
+    for block in blocks:
+        if block.get("type") != "annotation":
+            cleaned.append(block)
+            continue
+
+        text = (block.get("text") or "").strip()
+        if not text:
+            continue
+
+        normalized = re.sub(r"[^A-Z0-9 ]+", "", text.upper()).strip()
+        if normalized in terms:
+            if cleaned and cleaned[-1].get("type") == "comm":
+                prev_text = (cleaned[-1].get("text") or "").strip()
+                if prev_text:
+                    cleaned[-1]["text"] = f"{prev_text} {text}".strip()
+                else:
+                    cleaned[-1]["text"] = text
+            else:
+                cleaned.append({"type": "comm", "text": text})
+            continue
+
+        cleaned.append(block)
+
+    return cleaned
+
+
 def build_page_json(
     rows: list[dict],
     lines: list[str],
@@ -227,6 +330,7 @@ def build_page_json(
     text_replacements: dict[str, str] | None = None,
     mission_keywords: list[str] | None = None,
     valid_locations: list[str] | None = None,
+    inline_annotation_terms: list[str] | None = None,
     initial_ts: str | None = None,
     previous_block_type: str | None = None,
 ) -> dict:
@@ -362,6 +466,8 @@ def build_page_json(
                 continue
         merged_blocks.append(block)
     blocks = merged_blocks
+    blocks = clean_or_merge_continuations(blocks)
+    blocks = merge_inline_annotations(blocks, inline_annotation_terms)
 
     # Canonicalize REST PERIOD pages
     rest_period_found = False

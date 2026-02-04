@@ -42,6 +42,8 @@ def collect_page_jsons(output_dir: Path, pdf_stem: str) -> list[PageBundle]:
             page_num = int(header.get("page", 0))
         except (TypeError, ValueError):
             page_num = 0
+        if isinstance(page_num, int) and page_num <= 0:
+            continue
         bundles.append(PageBundle(page_num=page_num, header=header, blocks=blocks, source_path=json_path))
     bundles.sort(key=lambda b: (b.page_num, b.source_path.name))
     return bundles
@@ -78,9 +80,21 @@ def build_global_json(pdf_stem: str, pages: list[PageBundle]) -> dict:
                 tape_y += 1
 
         key = f"Page {page_num:03d}"
+        cleaned_blocks: list[dict] = []
+        for block in page.blocks:
+            if not isinstance(block, dict):
+                cleaned_blocks.append(block)
+                continue
+            cleaned = dict(block)
+            cleaned.pop("timestamp_correction", None)
+            cleaned.pop("timestamp_warning", None)
+            cleaned.pop("timestamp_suffix_hint", None)
+            cleaned.pop("_column_fill", None)
+            cleaned_blocks.append(cleaned)
+
         page_map[key] = {
             "header": header,
-            "blocks": page.blocks,
+            "blocks": cleaned_blocks,
         }
     return {
         "document": pdf_stem,

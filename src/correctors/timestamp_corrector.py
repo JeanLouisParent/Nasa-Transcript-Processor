@@ -45,6 +45,10 @@ class TimestampCorrector:
         self.last_valid_ts: Timecode | None = None
         self.ts_pattern = re.compile(r"(\d{1,2})[\s:]+(\d{1,2})[\s:]+(\d{1,2})[\s:]+(\d{1,2})")
         self.backward_tolerance_s = backward_tolerance_s
+        self.reset_threshold_s = 3600
+        self.seen_any_ts = False
+        self.stable_run_len = 3
+        self.stable_run_window = 6
 
         if initial_ts:
             self.last_valid_ts = self.parse(initial_ts)
@@ -61,8 +65,9 @@ class TimestampCorrector:
         norm = norm.replace("S", "5").replace("B", "8")
         norm = norm.replace(")", "0").replace("(", "0")
         norm = norm.replace("'", "")
+        norm = norm.replace("°", "0")
         # Remove OCR noise characters that appear in timestamps
-        norm = norm.replace(":", "").replace("?", "")
+        norm = norm.replace(":", "").replace("?", "").replace(".", "").replace("/", "")
 
         # Handle dashes
         norm = norm.replace("--", "00").replace("-", "0")
@@ -80,7 +85,20 @@ class TimestampCorrector:
 
             if len(parts) == 4:
                 try:
-                    return Timecode(int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3]))
+                    day = int(parts[0])
+                    hour = int(parts[1])
+                    minute = int(parts[2])
+                    second = int(parts[3])
+
+                    # Apply day correction even in fallback parsing
+                    if day == 94:
+                        day = 4
+                    elif day == 55:
+                        day = 5
+                    elif day > 10:
+                        day = day % 10
+
+                    return Timecode(day, hour, minute, second)
                 except ValueError:
                     return None
             return None
@@ -105,16 +123,62 @@ class TimestampCorrector:
         except ValueError:
             return None
 
+    def _hour_snap(self, current_ts: Timecode, last_ts: Timecode) -> Timecode | None:
+        """
+        Attempt to repair OCR hour misreads by snapping to the last known hour
+        (or adjacent hours) when minute/second look plausible.
+        """
+        if current_ts.day != last_ts.day:
+            return None
+
+        candidates: list[tuple[int, Timecode]] = []
+        for delta_h in (0, -1, 1):
+            hour = last_ts.hour + delta_h
+            if 0 <= hour <= 23:
+                candidate = Timecode(current_ts.day, hour, current_ts.minute, current_ts.second)
+                delta = candidate.to_seconds() - last_ts.to_seconds()
+                if 0 < delta <= 600:
+                    candidates.append((delta, candidate))
+
+        if not candidates:
+            return None
+        candidates.sort(key=lambda x: x[0])
+        return candidates[0][1]
+
     def process_blocks(self, blocks: list[dict]) -> list[dict]:
         """
         Process a list of blocks to ensure strictly increasing timestamps.
         """
+        parsed_ts: list[Timecode | None] = []
         for block in blocks:
+            if block.get("type") != "comm":
+                parsed_ts.append(None)
+                continue
+            parsed_ts.append(self.parse(block.get("timestamp", "")))
+
+        def has_stable_run(start_idx: int) -> bool:
+            candidates: list[Timecode] = []
+            for j in range(start_idx, min(len(blocks), start_idx + self.stable_run_window)):
+                ts = parsed_ts[j]
+                if ts:
+                    candidates.append(ts)
+                if len(candidates) >= self.stable_run_len:
+                    break
+            if len(candidates) < self.stable_run_len:
+                return False
+            for a, b in zip(candidates, candidates[1:]):
+                if b.to_seconds() <= a.to_seconds():
+                    return False
+                if b.to_seconds() - a.to_seconds() > 600:
+                    return False
+            return True
+
+        for idx, block in enumerate(blocks):
             if block.get("type") != "comm":
                 continue
 
             ts_str = block.get("timestamp", "")
-            current_ts = self.parse(ts_str)
+            current_ts = parsed_ts[idx]
             suffix_hint = block.get("timestamp_suffix_hint")
 
             if current_ts and suffix_hint and self.last_valid_ts:
@@ -144,9 +208,35 @@ class TimestampCorrector:
                                 block["timestamp_correction"] = "inferred_suffix"
 
             if current_ts:
+                if self.last_valid_ts and not self.seen_any_ts:
+                    delta = current_ts.to_seconds() - self.last_valid_ts.to_seconds()
+                    if delta < -self.reset_threshold_s:
+                        self.last_valid_ts = current_ts
+                        block["timestamp"] = str(current_ts)
+                        block["timestamp_correction"] = "sequence_reset"
+                        self.seen_any_ts = True
+                        block.pop("timestamp_suffix_hint", None)
+                        continue
+                if self.last_valid_ts:
+                    delta = current_ts.to_seconds() - self.last_valid_ts.to_seconds()
+                    if delta < -self.reset_threshold_s and has_stable_run(idx):
+                        self.last_valid_ts = current_ts
+                        block["timestamp"] = str(current_ts)
+                        block["timestamp_correction"] = "sequence_reset"
+                        self.seen_any_ts = True
+                        block.pop("timestamp_suffix_hint", None)
+                        continue
                 # If we have a previous TS, ensure monotonicity
                 if self.last_valid_ts:
                     delta = current_ts.to_seconds() - self.last_valid_ts.to_seconds()
+                    if delta > 3600:
+                        snapped = self._hour_snap(current_ts, self.last_valid_ts)
+                        if snapped:
+                            current_ts = snapped
+                            block["timestamp_correction"] = "corrected_hour"
+                            self.last_valid_ts = current_ts
+                            block["timestamp"] = str(current_ts)
+                            continue
                     # If current is less than or equal to previous, it's likely an OCR error
                     if delta <= 0:
                         if (
@@ -171,6 +261,15 @@ class TimestampCorrector:
                                     self.last_valid_ts = current_ts
                                     block["timestamp"] = str(current_ts)
                                     continue
+                        snapped = None
+                        if abs(delta) > self.backward_tolerance_s:
+                            snapped = self._hour_snap(current_ts, self.last_valid_ts)
+                        if snapped:
+                            current_ts = snapped
+                            block["timestamp_correction"] = "corrected_hour"
+                            self.last_valid_ts = current_ts
+                            block["timestamp"] = str(current_ts)
+                            continue
                         if abs(delta) > self.backward_tolerance_s:
                             # Invent: Increment previous by 1 second
                             new_seconds = self.last_valid_ts.to_seconds() + 1
@@ -192,6 +291,7 @@ class TimestampCorrector:
                 block["timestamp"] = str(current_ts)
                 if not self.last_valid_ts:
                     self.last_valid_ts = current_ts
+                self.seen_any_ts = True
             else:
                 # If TS is missing or unparseable but it's a COMM block, infer from last
                 if self.last_valid_ts:
@@ -200,6 +300,7 @@ class TimestampCorrector:
                     block["timestamp"] = str(inferred_ts)
                     block["timestamp_correction"] = "inferred_missing"
                     self.last_valid_ts = inferred_ts
+                    self.seen_any_ts = True
             block.pop("timestamp_suffix_hint", None)
 
         return blocks

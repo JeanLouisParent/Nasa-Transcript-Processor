@@ -491,27 +491,54 @@ def build_page_json(
         header_info["page_type"] = "rest_period"
 
     # Final cleanup of footers and locations on merged text
+    # Also extract tracking station annotations as separate blocks
+    cleaned_blocks = []
+    annotation_pattern = re.compile(r'\b([A-Z]{4,})\s*\((REV|PASS)\s*(\d+)\)\s*', re.IGNORECASE)
+
     for block in blocks:
         if block.get("text"):
             text = block["text"]
             if block.get("type") == "comm":
                 text = remove_repeated_phrases(text)
             text = clean_trailing_footer(text)
+
             # Extract tracking station annotations: "STATIONNAME (REV N)" or "STATIONNAME (PASS N)"
-            annotation_pattern = re.compile(r'\b([A-Z]{4,})\s*\((REV|PASS)\s*(\d+)\)\s*', re.IGNORECASE)
             annotation_match = annotation_pattern.search(text)
-            if annotation_match:
+            if annotation_match and block.get("type") == "comm":
                 # Extract annotation and remove from text
                 station = annotation_match.group(1).upper()
                 marker = annotation_match.group(2).upper()
                 number = annotation_match.group(3)
-                block["annotation"] = f"{station} ({marker} {number})"
-                text = annotation_pattern.sub('', text)
+                annotation_text = f"{station} ({marker} {number})"
+                text = annotation_pattern.sub('', text).strip()
+
+                # Update current block text
+                block["text"] = text
+
+                # Remove any residual location tag at the start: "(TRANQ) ..."
+                if valid_locations:
+                    for loc in valid_locations:
+                        block["text"] = re.sub(rf"^\({re.escape(loc)}\)\s*", "", block["text"], flags=re.IGNORECASE)
+
+                # Add the comm block
+                cleaned_blocks.append(block)
+
+                # Add annotation as separate block
+                cleaned_blocks.append({
+                    "type": "annotation",
+                    "text": annotation_text
+                })
+                continue
+
             # Remove any residual location tag at the start: "(TRANQ) ..."
             if valid_locations:
                 for loc in valid_locations:
                     text = re.sub(rf"^\({re.escape(loc)}\)\s*", "", text, flags=re.IGNORECASE)
             block["text"] = text.strip()
+
+        cleaned_blocks.append(block)
+
+    blocks = cleaned_blocks
 
     # Apply correctors
     ts_corrector = TimestampCorrector(initial_ts)

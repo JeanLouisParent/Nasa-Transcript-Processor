@@ -416,7 +416,7 @@ def run_ocr_pipeline(
 
             t0 = time.perf_counter()
             lines = [line.strip() for line in text.splitlines() if line.strip()]
-            rows = parse_ocr_text(text, page_num, mission_keywords)
+            rows = parse_ocr_text(text, page_num, mission_keywords, valid_speakers)
             stage_t["parse_plain"] = time.perf_counter() - t0
 
             # Get last timestamp from previous pages
@@ -451,7 +451,7 @@ def run_ocr_pipeline(
                 raw_text_fallback = raw_text_fallback.replace("\r\n", "\n").replace("\r", "\n")
                 t0 = time.perf_counter()
                 fallback_lines = [line.strip() for line in raw_text_fallback.splitlines() if line.strip()]
-                fallback_rows = parse_ocr_text(raw_text_fallback, page_num, mission_keywords)
+                fallback_rows = parse_ocr_text(raw_text_fallback, page_num, mission_keywords, valid_speakers)
                 stage_t["parse_raw"] = time.perf_counter() - t0
                 t0 = time.perf_counter()
                 fallback_payload = build_page_json(
@@ -484,7 +484,7 @@ def run_ocr_pipeline(
                 faint_text = faint_text.replace("\r\n", "\n").replace("\r", "\n")
                 t0 = time.perf_counter()
                 faint_lines = [line.strip() for line in faint_text.splitlines() if line.strip()]
-                faint_rows = parse_ocr_text(faint_text, page_num, mission_keywords)
+                faint_rows = parse_ocr_text(faint_text, page_num, mission_keywords, valid_speakers)
                 stage_t["parse_faint"] = time.perf_counter() - t0
                 t0 = time.perf_counter()
                 faint_payload = build_page_json(
@@ -885,7 +885,7 @@ def reparse_from_ocr(pdf_name: str):
         raw_text = raw_path.read_text(encoding="utf-8")
         text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
         lines = [line.strip() for line in text.splitlines() if line.strip()]
-        rows = parse_ocr_text(text, page_num, mission_keywords)
+        rows = parse_ocr_text(text, page_num, mission_keywords, valid_speakers)
         initial_ts = ts_index.get_last_timestamp_before(page_num)
         payload = build_page_json(
             rows, lines, page_num, mission_cfg.page_offset,
@@ -902,7 +902,7 @@ def reparse_from_ocr(pdf_name: str):
             raw_fallback = raw_fallback_paths[0].read_text(encoding="utf-8")
             raw_fallback = raw_fallback.replace("\r\n", "\n").replace("\r", "\n")
             fallback_lines = [line.strip() for line in raw_fallback.splitlines() if line.strip()]
-            fallback_rows = parse_ocr_text(raw_fallback, page_num, mission_keywords)
+            fallback_rows = parse_ocr_text(raw_fallback, page_num, mission_keywords, valid_speakers)
             fallback_payload = build_page_json(
                 fallback_rows, fallback_lines, page_num, mission_cfg.page_offset,
                 valid_speakers, text_replacements,
@@ -918,7 +918,7 @@ def reparse_from_ocr(pdf_name: str):
             faint_text = faint_paths[0].read_text(encoding="utf-8")
             faint_text = faint_text.replace("\r\n", "\n").replace("\r", "\n")
             faint_lines = [line.strip() for line in faint_text.splitlines() if line.strip()]
-            faint_rows = parse_ocr_text(faint_text, page_num, mission_keywords)
+            faint_rows = parse_ocr_text(faint_text, page_num, mission_keywords, valid_speakers)
             faint_payload = build_page_json(
                 faint_rows, faint_lines, page_num, mission_cfg.page_offset,
                 valid_speakers, text_replacements,

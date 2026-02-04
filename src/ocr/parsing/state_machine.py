@@ -52,7 +52,12 @@ def transition_keyword_match(line: str) -> bool:
     return False
 
 
-def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] | None = None) -> list[dict]:
+def parse_ocr_text(
+    text: str,
+    page_num: int,
+    mission_keywords: list[str] | None = None,
+    valid_speakers: list[str] | None = None
+) -> list[dict]:
     """
     Parse plain OCR output into structured rows.
     """
@@ -112,6 +117,7 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] | None 
     saw_comm_or_ts = False
 
     def take_speaker_tokens(tokens: list[str]) -> tuple[str, list[str]]:
+        import difflib
         speaker_tokens = []
         while tokens and len(speaker_tokens) < 3:
             token = tokens[0]
@@ -119,6 +125,13 @@ def parse_ocr_text(text: str, page_num: int, mission_keywords: list[str] | None 
                 break
             if SPEAKER_TOKEN_RE.match(token):
                 cleaned = token.rstrip("?")
+                # If valid_speakers is provided, only consume tokens that match
+                if valid_speakers:
+                    # Check if token fuzzy matches any valid speaker
+                    matches = difflib.get_close_matches(cleaned.upper(), valid_speakers, n=1, cutoff=0.7)
+                    if not matches:
+                        # Token doesn't match any valid speaker, stop consuming
+                        break
                 speaker_tokens.append(cleaned)
                 tokens.pop(0)
                 continue

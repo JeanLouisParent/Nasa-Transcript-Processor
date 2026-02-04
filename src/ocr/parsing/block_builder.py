@@ -481,11 +481,11 @@ def build_page_json(
         if text_val and REST_PERIOD_RE.search(text_val) and NO_COMM_RE.search(text_val):
             block["type"] = "meta"
             block["meta_type"] = "rest_period"
-            block["text"] = "REST PERIOD"
+            block["text"] = "REST PERIOD - NO COMMUNICATIONS"
         elif text_val and REST_PERIOD_RE.search(text_val):
             block["type"] = "meta"
             block["meta_type"] = "rest_period"
-            block["text"] = "REST PERIOD"
+            block["text"] = "REST PERIOD - NO COMMUNICATIONS"
         if text_val and is_transcription_header(text_val):
             if rest_period_found:
                 continue

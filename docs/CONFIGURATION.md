@@ -96,24 +96,59 @@ flowchart LR
 ### Lexicon Settings
 
 ```toml
-[lexicon]
+[pipeline_defaults.lexicon]
 mission_keywords = [
-    "CARNARVON", "TANANARIVE", "GUAM", "MADRID", ...
+    "CARNARVON", "TANANARIVE", "GUAM", "MADRID", "ASCENSION",
+    "BERMUDA", "CANARY", "HONOLULU", "GOLDSTONE", "MILA",
+    "TEI", "TLI", "LOI", "COI", "EVA", "LM", "CSM", "CMC", "LGC", "DSKY",
+    # Technical terms with hyphens (preserve exact format for OCR correction)
+    "S-IVB", "S-IV", "AIR-TO-GROUND", "NO-GO",
+    "DELTA-P", "DELTA-V", "DELTA-VC", "DELTA-H", "DELTA-VZ",
+    "DELTA-VT", "DELTA-TIG", "DELTA-R", "DELTA-VX", "LOI-2",
+    ...
 ]
 ```
 
-Protected keywords that won't be spell-corrected.
+Protected keywords that won't be spell-corrected. Includes:
+- **Station names**: CARNARVON, GUAM, MADRID, etc.
+- **Mission events**: TEI, TLI, LOI (Trans-Earth Injection, etc.)
+- **Hardware**: LM, CSM, DSKY (Lunar Module, Command Module, Display & Keyboard)
+- **Hyphenated technical terms**: S-IVB, DELTA-V, etc. (preserves exact format)
+
+### Corrector Settings
+
+```toml
+[pipeline_defaults.correctors.speaker_ocr_fixes]
+"CT" = "CMP"
+"CTP" = "CMP"
+"CMF" = "CMP"
+"CMFVERB" = "CMP"
+"IMF" = "LMP"
+"CDF" = "CDR"
+
+[pipeline_defaults.correctors.invalid_location_annotations]
+annotations = [
+    "LAUGHING", "LAUGHTER", "LAUGH",
+    "GARBLE", "GARBLED",
+    "PAUSE", "PAUSED",
+]
+```
+
+**Speaker OCR Fixes**: Common OCR misreads of speaker callsigns (e.g., "CT" → "CMP").
+
+**Invalid Location Annotations**: Terms that appear in the location field but are actually annotations (laughter, garble, etc.). These will be filtered out by the LocationCorrector.
 
 ### Parser Settings
 
 ```toml
-[parser]
-[parser.text_replacements]
+[pipeline_defaults.parser.text_replacements]
 "\\bRFV\\b" = "REV"
 "\\bRE V\\b" = "REV"
 ```
 
-Global regex replacements applied to OCR text.
+Global regex replacements applied to OCR text **after** spell-checking.
+
+**IMPORTANT**: Replacements are applied AFTER spell-checking to prevent re-correction. For example, "Is-IVB" → "S-IVB" must happen after spell-check completes.
 
 ---
 
@@ -140,7 +175,9 @@ page_offset = -2
 | `col2_end` | float | Speaker column end ratio |
 | `valid_speakers` | list | Allowed speaker callsigns for correction |
 | `valid_locations` | list | Allowed location identifiers |
-| `text_replacements` | table | Mission-specific OCR fixes |
+| `text_replacements` | table | Mission-specific OCR fixes (regex patterns) |
+| `speaker_ocr_fixes` | table | Mission-specific speaker OCR corrections |
+| `manual_speaker_corrections` | table | Manual speaker fixes by exact timestamp |
 
 ### Example: Apollo 11
 
@@ -150,9 +187,39 @@ file_name = "AS11_TEC.PDF"
 page_offset = -2
 col1_end = 0.15
 col2_end = 0.30
-valid_speakers = ["CDR", "CC", "CMP", "LMP", "SC", "HOUSTON", "MS", "MSFN", "PAO", "CT", "HORNET", "MCC"]
-valid_locations = ["TRANQ", "COLUMBIA", "EAGLE"]
-text_replacements = { "\\bll\\b" = "11", "\\bI1\\b" = "11", "CDY" = "CDR" }
+
+valid_speakers = [
+    "CDR", "CC", "CMP", "LMP", "SC", "HOUSTON", "MS", "MSFN",
+    "PAO", "CT", "HORNET", "MCC", "COMM", "SWIM 1", "PRESIDENT NIXON"
+]
+
+valid_locations = ["EAGLE", "COLUMBIA", "TRANQ", "EVA"]
+
+# Regex text replacements (applied AFTER spell-checking)
+text_replacements = {
+    "\\bll\\b" = "11",
+    "\\bI1\\b" = "11",
+    "\\bil\\b" = "11",
+    "(\\w+)'11" = "\\1'll",
+    "GRAINED BEAM" = "GRAND BAHAMA",
+    "Gunymas" = "Guaymas",
+    "PFESS" = "PRESS",
+    "PASS light" = "PRESS light",
+    "MASTEP" = "MASTER",
+    "CDY" = "CDR",
+    "LIF" = "LMP",
+    "HIM" = "LMP",
+    "\\b(His|Is)-IV" = "S-IV",
+}
+
+# Mission-specific speaker OCR fixes
+[mission.11.speaker_ocr_fixes]
+"TLI" = "CC"
+"Tli" = "CC"
+
+# Manual corrections for specific timestamps
+[mission.11.manual_speaker_corrections]
+"00 05 41 36" = "CMP"  # "(V'" OCR error
 ```
 
 ---

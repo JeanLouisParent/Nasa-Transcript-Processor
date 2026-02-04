@@ -252,6 +252,7 @@ At the end of processing, the pipeline generates merged outputs.
 |:-----|:--------|
 | `<stem>_merged.json` | All pages combined in one JSON (keys like `Page 001`) |
 | `<stem>_transcript.txt` | Formatted human-readable transcript |
+| `<stem>_transcript.md` | Markdown-formatted transcript |
 
 ### Manual Export
 
@@ -260,3 +261,93 @@ python main.py export <PDF_NAME>
 ```
 
 Regenerates merged files from existing per-page JSON without re-running OCR.
+
+---
+
+## Fast Iteration Workflows
+
+### Reparse from Stored OCR (Fast: 1-2 minutes)
+
+After making configuration changes or code fixes, you can reparse from the cached OCR text instead of re-running the full OCR pipeline (which takes 3+ hours).
+
+**Command:**
+
+```bash
+python main.py reparse <PDF_NAME>
+```
+
+**What it does:**
+
+1. Reads stored OCR text from `output/<stem>/pages/Page_NNN/ocr/*.txt`
+2. Re-runs the parsing pipeline with current configuration
+3. Re-runs all correctors (timestamp, speaker, location, text)
+4. Regenerates per-page JSON files
+5. Updates timestamp index
+
+**Use cases:**
+
+- Fixed text_replacements regex patterns
+- Added manual_speaker_corrections
+- Updated valid_speakers or valid_locations
+- Changed corrector logic
+- Improved parser algorithms
+
+**Example workflow:**
+
+```bash
+# 1. Run initial OCR (slow: ~3 hours)
+python main.py process AS11_TEC.PDF
+
+# 2. Notice issues, update config/missions.toml
+#    Add: "GRAINED BEAM" = "GRAND BAHAMA"
+
+# 3. Reparse with new config (fast: ~1 minute)
+python main.py reparse AS11_TEC.PDF
+
+# 4. Post-process to apply block merging
+python main.py postprocess AS11_TEC.PDF
+
+# 5. Export to merged JSON
+python main.py export AS11_TEC.PDF
+
+# 6. Validate quality
+python analyze_quality.py
+```
+
+### Post-Process Only (Fastest: 30 seconds)
+
+If you only changed block-level processing (not parsing), you can run post-processing alone:
+
+**Command:**
+
+```bash
+python main.py postprocess <PDF_NAME>
+```
+
+**What it does:**
+
+1. Reads existing per-page JSON files
+2. Re-runs block processing:
+   - `split_embedded_timestamp_blocks()`
+   - `merge_duplicate_comm_timestamps()`
+   - `merge_nearby_duplicate_timestamps()`
+   - `clean_or_merge_continuations()`
+   - `merge_inline_annotations()`
+3. Regenerates per-page JSON files
+
+**Use cases:**
+
+- Changed block merging logic
+- Updated continuation detection
+- Modified annotation handling
+
+---
+
+## Pipeline Comparison
+
+| Operation | Duration | Use Case |
+|:----------|:---------|:---------|
+| `process` | 3-4 hours | Initial run, or after changing image processing/OCR |
+| `reparse` | 1-2 minutes | After config changes, parser fixes, corrector updates |
+| `postprocess` | 30 seconds | After block processing logic changes |
+| `export` | 5 seconds | After metadata changes or formatting updates |

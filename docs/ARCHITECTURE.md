@@ -180,6 +180,7 @@ flowchart TB
         TSC[timestamp_corrector.py]
         TXC[text_corrector.py]
         SPC[speaker_corrector.py]
+        LOC[location_corrector.py]
         TSI[timestamp_index.py]
     end
 
@@ -211,9 +212,10 @@ flowchart TB
 | `parsing/preprocessor.py` | Line splitting, embedded component detection |
 | `parsing/state_machine.py` | Line classification state machine |
 | `parsing/block_builder.py` | JSON construction with corrections |
-| `timestamp_corrector.py` | Monotonic time enforcement |
-| `text_corrector.py` | Lexicon-based spelling correction |
-| `speaker_corrector.py` | Callsign normalization |
+| `timestamp_corrector.py` | Monotonic time enforcement, day correction, hour snapping, sequence reset detection |
+| `text_corrector.py` | Lexicon-based spelling correction, mission-specific replacements |
+| `speaker_corrector.py` | Callsign normalization, OCR fixes, manual corrections by timestamp |
+| `location_corrector.py` | Location validation, invalid annotation filtering |
 | `timestamp_index.py` | Persistent cross-page timestamp storage |
 | `output_generator.py` | Directory creation, atomic file writes |
 | `merge_export.py` | JSON merge, TXT formatting |
@@ -331,6 +333,7 @@ ocr_transcript_v2/
 │   ├── correctors/
 │   │   ├── speaker_corrector.py
 │   │   ├── text_corrector.py
+│   │   ├── location_corrector.py
 │   │   ├── timestamp_corrector.py
 │   │   └── timestamp_index.py
 │   └── utils/
@@ -338,6 +341,12 @@ ocr_transcript_v2/
 │       ├── merge_export.py
 │       └── output_generator.py
 ├── docs/
+│   ├── README.md           # Documentation index
+│   ├── ARCHITECTURE.md     # System design
+│   ├── PIPELINE.md         # Processing stages
+│   ├── POST_PROCESSING.md  # Text intelligence
+│   ├── CONFIGURATION.md    # Config reference
+│   └── SCHEMAS.md          # JSON Schema docs
 ├── input/
 ├── output/
 └── state/

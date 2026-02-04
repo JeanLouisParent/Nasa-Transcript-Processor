@@ -17,9 +17,11 @@ flowchart LR
 | **Smart Image Enhancement** | Deskew, normalization, noise removal, and contrast optimization |
 | **Multi-pass OCR** | Primary + raw + faint fallback passes with intelligent merge |
 | **Structured Parsing** | Extracts timestamps, speakers, locations, and dialogue |
-| **Timestamp Recovery** | Maintains chronological integrity across pages |
-| **Speaker Correction** | Fuzzy matching against mission-specific callsigns |
-| **Global Export** | Merged JSON and formatted text transcripts |
+| **Advanced Timestamp Correction** | Day correction (94→04), hour snapping, sequence reset detection, OCR noise normalization |
+| **Speaker & Location Validation** | Fuzzy matching, OCR fixes, manual corrections by timestamp, invalid annotation filtering |
+| **Text Intelligence** | Lexicon-based spell-checking, regex replacements, hyphenated technical terms |
+| **Fast Iteration** | Reparse from cached OCR in 1-2 min (vs 3h full OCR) after config changes |
+| **Global Export** | Merged JSON and formatted text/markdown transcripts |
 
 ---
 
@@ -64,6 +66,8 @@ python main.py process AS11_TEC.PDF --no-ocr
 | Command | Description |
 |:--------|:------------|
 | `process <PDF>` | Run the full pipeline (image + OCR + export) |
+| `reparse <PDF>` | Reparse pages from stored OCR text without re-running OCR (1-2 min vs 3h) |
+| `postprocess <PDF>` | Post-process existing per-page JSON without re-running OCR |
 | `export <PDF>` | Regenerate merged JSON and TXT from existing page data |
 | `info <PDF>` | Display PDF metadata and page count |
 
@@ -87,6 +91,12 @@ python main.py process AS11_TEC.PDF --pages 100-150 --timing
 
 # Clean start with custom OCR server
 python main.py process AS11_TEC.PDF --clean --ocr-url http://192.168.1.50:1234
+
+# Reparse from stored OCR after fixing configuration (fast: 1-2 minutes)
+python main.py reparse AS11_TEC.PDF
+
+# Post-process pages after code changes
+python main.py postprocess AS11_TEC.PDF
 
 # Export only (after prior processing)
 python main.py export AS11_TEC.PDF
@@ -174,8 +184,8 @@ See [Configuration Reference](docs/CONFIGURATION.md) for complete details.
 | Document | Content |
 |:---------|:--------|
 | [Architecture](docs/ARCHITECTURE.md) | System design, data structures, module responsibilities |
-| [Pipeline](docs/PIPELINE.md) | Image processing stages, OCR strategy |
-| [Post-Processing](docs/POST_PROCESSING.md) | Parsing algorithms, correction logic |
+| [Pipeline](docs/PIPELINE.md) | Image processing stages, OCR strategy, fast iteration workflows |
+| [Post-Processing](docs/POST_PROCESSING.md) | Parsing algorithms, correction logic, advanced timestamp features |
 | [Configuration](docs/CONFIGURATION.md) | Complete configuration reference |
 | [Schemas](docs/SCHEMAS.md) | JSON Schema definitions for output validation |
 

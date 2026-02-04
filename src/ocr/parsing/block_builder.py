@@ -86,8 +86,9 @@ def split_embedded_timestamp_blocks(blocks: list[dict]) -> list[dict]:
             continue
 
         matches = list(EMBEDDED_TIMESTAMP_RE.finditer(text))
-        if not matches:
-            matches = list(SECONDARY_EMBEDDED_RE.finditer(text))
+        # DISABLED: SECONDARY_EMBEDDED_RE is too aggressive and creates false positives
+        # if not matches:
+        #     matches = list(SECONDARY_EMBEDDED_RE.finditer(text))
         if not matches:
             output.append(block)
             continue

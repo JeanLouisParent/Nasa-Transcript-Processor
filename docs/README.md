@@ -7,7 +7,7 @@
 | Document | Description |
 |:---------|:------------|
 | [Architecture](ARCHITECTURE.md) | System design, data structures, and module responsibilities |
-| [Pipeline](PIPELINE.md) | Image processing stages and OCR strategy |
+| [Pipeline](PIPELINE.md) | Image processing stages, OCR strategy, and fast iteration workflows |
 | [Post-Processing](POST_PROCESSING.md) | Text intelligence, parsing algorithms, and correction logic |
 | [Configuration](CONFIGURATION.md) | Complete reference for all configuration options |
 | [Schemas](SCHEMAS.md) | JSON Schema definitions for output validation |
@@ -51,7 +51,7 @@ flowchart TB
 ### For Understanding the System
 
 1. [Architecture](ARCHITECTURE.md) — High-level design and data flow
-2. [Pipeline](PIPELINE.md) — Image processing algorithms
+2. [Pipeline](PIPELINE.md) — Image processing algorithms and workflows
 3. [Post-Processing](POST_PROCESSING.md) — Text parsing and correction
 4. [Schemas](SCHEMAS.md) — Output format specifications
 

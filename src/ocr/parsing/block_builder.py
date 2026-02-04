@@ -497,8 +497,16 @@ def build_page_json(
             if block.get("type") == "comm":
                 text = remove_repeated_phrases(text)
             text = clean_trailing_footer(text)
-            # Remove tracking station annotations: "STATIONNAME (REV N)" or "STATIONNAME (PASS N)"
-            text = re.sub(r'\b[A-Z]{4,}\s*\((?:REV|PASS)\s*\d+\)\s*', '', text, flags=re.IGNORECASE)
+            # Extract tracking station annotations: "STATIONNAME (REV N)" or "STATIONNAME (PASS N)"
+            annotation_pattern = re.compile(r'\b([A-Z]{4,})\s*\((REV|PASS)\s*(\d+)\)\s*', re.IGNORECASE)
+            annotation_match = annotation_pattern.search(text)
+            if annotation_match:
+                # Extract annotation and remove from text
+                station = annotation_match.group(1).upper()
+                marker = annotation_match.group(2).upper()
+                number = annotation_match.group(3)
+                block["annotation"] = f"{station} ({marker} {number})"
+                text = annotation_pattern.sub('', text)
             # Remove any residual location tag at the start: "(TRANQ) ..."
             if valid_locations:
                 for loc in valid_locations:

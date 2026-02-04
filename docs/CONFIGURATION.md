@@ -1,6 +1,6 @@
 # Configuration Reference
 
-> Complete reference for all configuration options.
+Complete reference for all configuration options.
 
 ## Table of Contents
 
@@ -134,7 +134,7 @@ annotations = [
 ]
 ```
 
-**Speaker OCR Fixes**: Common OCR misreads of speaker callsigns (e.g., "CT" → "CMP").
+**Speaker OCR Fixes**: Common OCR misreads of speaker callsigns (e.g., "CT" -> "CMP").
 
 **Invalid Location Annotations**: Terms that appear in the location field but are actually annotations (laughter, garble, etc.). These will be filtered out by the LocationCorrector.
 
@@ -148,7 +148,7 @@ annotations = [
 
 Global regex replacements applied to OCR text **after** spell-checking.
 
-**IMPORTANT**: Replacements are applied AFTER spell-checking to prevent re-correction. For example, "Is-IVB" → "S-IVB" must happen after spell-check completes.
+**IMPORTANT**: Replacements are applied AFTER spell-checking to prevent re-correction. For example, "Is-IVB" -> "S-IVB" must happen after spell-check completes.
 
 ---
 
@@ -296,7 +296,7 @@ python main.py process <PDF_NAME> [OPTIONS]
 | `--ocr-url` | string | from config | Override LM Studio URL |
 | `--ocr-prompt` | choice | from config | `"plain"` or `"column"` |
 | `--timing` | flag | from config | Show per-page timing breakdowns |
-| `--no-timing` | flag | — | Disable timing display |
+| `--no-timing` | flag | - | Disable timing display |
 | `-v, --verbose` | flag | false | Verbose logging to `pipeline.log` |
 
 ### `export` Command

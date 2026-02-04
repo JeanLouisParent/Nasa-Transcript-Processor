@@ -1,6 +1,6 @@
 # Architecture
 
-> System design, data structures, and module organization.
+System design, data structures, and module organization.
 
 ## Table of Contents
 
@@ -18,10 +18,10 @@
 
 The pipeline is built on a **two-stage architecture** optimized for different processing characteristics:
 
-| Stage | Mode | Optimized For |
-|:------|:-----|:--------------|
-| **Image Stage** | Parallel | Throughput (CPU-bound) |
-| **Intelligence Stage** | Sequential | Accuracy (depends on prior pages) |
+| Stage | Mode | Optimized For | Orchestrator |
+|:------|:-----|:--------------|:-------------|
+| **1. Image Pipeline** | Parallel | Throughput (CPU-bound) | `src/core/pipeline.py` |
+| **2. Intelligence Pipeline** | Sequential | Accuracy (Context-dependent) | `main.py` |
 
 ```mermaid
 flowchart TB
@@ -85,7 +85,7 @@ flowchart LR
 
 ### PageResult (Internal)
 
-Passed between the Image Pipeline and CLI orchestrator:
+Passed between the Image Pipeline and the main CLI orchestrator:
 
 ```python
 @dataclass
@@ -161,9 +161,10 @@ Output structure written to `output/<stem>/pages/Page_NNN/Page_NNN.json`:
 
 ```mermaid
 flowchart TB
-    subgraph Core ["Core (src/core/)"]
-        PIPE[pipeline.py<br/><small>Image orchestration</small>]
-        CONF[config.py<br/><small>Config schema</small>]
+    subgraph Core ["Core"]
+        MAIN[main.py<br/><small>Stage 2 Orchestration</small>]
+        PIPE[src/core/pipeline.py<br/><small>Stage 1 Orchestration</small>]
+        CONF[src/core/config.py<br/><small>Config Schema</small>]
     end
 
     subgraph Processors ["Processors (src/processors/)"]
@@ -190,9 +191,13 @@ flowchart TB
         CONS[console.py<br/><small>Rich UI</small>]
     end
 
+    MAIN --> PIPE
     PIPE --> EXTM
     PIPE --> IMGM
     PIPE --> OUTG
+    
+    MAIN --> CLIENT
+    MAIN --> PARSER
     PARSER --> TSC
     PARSER --> TXC
     PARSER --> SPC
@@ -203,23 +208,20 @@ flowchart TB
 
 | Module | Responsibility |
 |:-------|:---------------|
-| `pipeline.py` | ThreadPoolExecutor management, page iteration |
-| `config.py` | PipelineConfig dataclass, validation |
-| `page_extractor.py` | Thread-safe PDF rendering via PyMuPDF |
-| `image_processor.py` | Deskew, normalization, enhancement (stateless) |
-| `ocr_client.py` | HTTP requests to LM Studio, Base64 encoding |
-| `parsing/patterns.py` | Regex patterns and constants |
-| `parsing/preprocessor.py` | Line splitting, embedded component detection |
-| `parsing/state_machine.py` | Line classification state machine |
-| `parsing/block_builder.py` | JSON construction with corrections |
-| `timestamp_corrector.py` | Monotonic time enforcement, day correction, hour snapping, sequence reset detection |
-| `text_corrector.py` | Lexicon-based spelling correction, mission-specific replacements |
-| `speaker_corrector.py` | Callsign normalization, OCR fixes, manual corrections by timestamp |
-| `location_corrector.py` | Location validation, invalid annotation filtering |
-| `timestamp_index.py` | Persistent cross-page timestamp storage |
-| `output_generator.py` | Directory creation, atomic file writes |
-| `merge_export.py` | JSON merge, TXT formatting |
-| `console.py` | Progress bars, status tables |
+| `main.py` | CLI entry point, intelligence pipeline orchestration, tape validation |
+| `src/core/pipeline.py` | Image pipeline orchestration, thread pool management |
+| `src/core/config.py` | PipelineConfig dataclass, validation |
+| `src/processors/page_extractor.py` | Thread-safe PDF rendering via PyMuPDF |
+| `src/processors/image_processor.py` | Deskew, normalization, enhancement (stateless) |
+| `src/ocr/ocr_client.py` | HTTP requests to LM Studio, Base64 encoding |
+| `src/ocr/parsing/` | Regex patterns, line splitting, state machine, block building |
+| `src/correctors/timestamp_corrector.py` | Monotonic time enforcement, day correction, hour snapping |
+| `src/correctors/text_corrector.py` | Lexicon-based spelling correction, mission-specific replacements |
+| `src/correctors/speaker_corrector.py` | Callsign normalization, OCR fixes |
+| `src/correctors/location_corrector.py` | Location validation, invalid annotation filtering |
+| `src/correctors/timestamp_index.py` | Persistent cross-page timestamp storage |
+| `src/utils/output_generator.py` | Directory creation, atomic file writes |
+| `src/utils/merge_export.py` | JSON merge, TXT formatting |
 
 ---
 
@@ -302,52 +304,3 @@ flowchart LR
 | Global | `config/defaults.toml` | All missions |
 | Mission | `config/missions.toml` | Per-PDF overrides |
 | CLI | Command-line flags | Single run |
-
----
-
-## Project Structure
-
-```
-ocr_transcript_v2/
-├── main.py                 # CLI entry point
-├── config/
-│   ├── defaults.toml       # Global settings
-│   ├── missions.toml       # Mission overrides
-│   └── prompts.toml        # OCR prompts
-├── src/
-│   ├── core/
-│   │   ├── config.py
-│   │   └── pipeline.py
-│   ├── processors/
-│   │   ├── page_extractor.py
-│   │   └── image_processor.py
-│   ├── ocr/
-│   │   ├── ocr_client.py
-│   │   ├── ocr_parser.py
-│   │   └── parsing/
-│   │       ├── patterns.py
-│   │       ├── utils.py
-│   │       ├── preprocessor.py
-│   │       ├── state_machine.py
-│   │       └── block_builder.py
-│   ├── correctors/
-│   │   ├── speaker_corrector.py
-│   │   ├── text_corrector.py
-│   │   ├── location_corrector.py
-│   │   ├── timestamp_corrector.py
-│   │   └── timestamp_index.py
-│   └── utils/
-│       ├── console.py
-│       ├── merge_export.py
-│       └── output_generator.py
-├── docs/
-│   ├── README.md           # Documentation index
-│   ├── ARCHITECTURE.md     # System design
-│   ├── PIPELINE.md         # Processing stages
-│   ├── POST_PROCESSING.md  # Text intelligence
-│   ├── CONFIGURATION.md    # Config reference
-│   └── SCHEMAS.md          # JSON Schema docs
-├── input/
-├── output/
-└── state/
-```

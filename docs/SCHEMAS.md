@@ -1,6 +1,6 @@
 # JSON Schema Reference
 
-> Formal schema definitions for pipeline output files.
+Formal schema definitions for pipeline output files.
 
 ## Overview
 
@@ -44,7 +44,7 @@ The pipeline outputs are validated against JSON Schema (Draft 2020-12). Schema f
 
 ### Block Types
 
-#### `comm` — Communication Block
+#### `comm` - Communication Block
 
 The primary block type for dialogue.
 
@@ -62,13 +62,13 @@ The primary block type for dialogue.
 | Value | Meaning |
 |:------|:--------|
 | `inferred_suffix` | Seconds digit inferred from context |
-| `inferred_tens` | Tens digit corrected (50→10 fix) |
+| `inferred_tens` | Tens digit corrected (50->10 fix) |
 | `inferred_monotonic` | Adjusted to maintain monotonic order |
 | `inferred_missing` | Timestamp was missing, inferred from previous |
 | `out_of_order` | Timestamp is out of order (kept as-is) |
 | `corrected_jump` | Large forward jump was corrected |
 
-#### `continuation` — Continuation Block
+#### `continuation` - Continuation Block
 
 Text continuing from a previous block or page.
 
@@ -78,7 +78,7 @@ Text continuing from a previous block or page.
 | `text` | string | Yes | Continuation text |
 | `continuation_from_prev` | boolean | No | True if continues from previous page |
 
-#### `meta` — Metadata Block
+#### `meta` - Metadata Block
 
 Structural markers and metadata.
 
@@ -98,28 +98,28 @@ Structural markers and metadata.
 | `rest_period` | "REST PERIOD - NO COMMUNICATIONS" |
 | `transcript_header` | "AIR-TO-GROUND VOICE TRANSCRIPTION" |
 
-#### `header` — Page Header
+#### `header` - Page Header
 
 | Field | Type | Required | Description |
 |:------|:-----|:---------|:------------|
 | `type` | `"header"` | Yes | Block type identifier |
 | `text` | string | Yes | Header content |
 
-#### `footer` — Page Footer
+#### `footer` - Page Footer
 
 | Field | Type | Required | Description |
 |:------|:-----|:---------|:------------|
 | `type` | `"footer"` | Yes | Block type identifier |
 | `text` | string | Yes | Footer content |
 
-#### `annotation` — Annotation
+#### `annotation` - Annotation
 
 | Field | Type | Required | Description |
 |:------|:-----|:---------|:------------|
 | `type` | `"annotation"` | Yes | Block type identifier |
 | `text` | string | Yes | Annotation content |
 
-#### `text` — Plain Text
+#### `text` - Plain Text
 
 Unclassified text block.
 

@@ -1,6 +1,6 @@
 # Pipeline Stages
 
-> Technical deep-dive into image processing and OCR strategy.
+Technical deep-dive into image processing and OCR strategy.
 
 ## Table of Contents
 
@@ -53,8 +53,8 @@ Extracts raster images from the source PDF using PyMuPDF.
 |:-----|:----------|:------|
 | 1 | **Lock** | `threading.Lock()` for thread safety |
 | 2 | **Render** | `page.get_pixmap(dpi=300)` |
-| 3 | **Convert** | Pixmap buffer → NumPy array (H×W×3) |
-| 4 | **Color space** | RGB → BGR (OpenCV format) |
+| 3 | **Convert** | Pixmap buffer to NumPy array (H x W x 3) |
+| 4 | **Color space** | RGB to BGR (OpenCV format) |
 
 ### Thread Safety
 
@@ -86,15 +86,15 @@ Detects and corrects page rotation to ensure horizontal text lines.
 | Step | Operation | Parameters |
 |:-----|:----------|:-----------|
 | 1 | Binarize | Otsu's threshold (`THRESH_BINARY_INV + THRESH_OTSU`) |
-| 2 | Line fusion | Morphological dilate (50×1 kernel) |
+| 2 | Line fusion | Morphological dilate (50x1 kernel) |
 | 3 | Contour detection | External contours only |
 | 4 | Filter | Area > 500px, Aspect ratio > 5 |
-| 5 | Angle calculation | `cv2.minAreaRect()`, normalized to [-45°, +45°] |
+| 5 | Angle calculation | `cv2.minAreaRect()`, normalized to [-45, +45] degrees |
 | 6 | Voting | Median of all detected line angles |
 | 7 | Fallback | Hough lines on Canny edges (if < 5 text lines) |
 | 8 | Correction | `cv2.warpAffine` with `INTER_LANCZOS4` |
 
-**Threshold:** Rotation only applied if `|angle| > 0.1°`
+**Threshold:** Rotation only applied if `|angle| > 0.1` degrees.
 
 ### 2.2 Size Normalization
 
@@ -102,7 +102,7 @@ Standardizes the canvas for consistent OCR input.
 
 | Parameter | Value |
 |:----------|:------|
-| Target size | 2550 × 3300 px (Letter @ 300 DPI) |
+| Target size | 2550 x 3300 px (Letter @ 300 DPI) |
 | Margins | 75 px uniform |
 | Downscale | `INTER_AREA` |
 | Upscale | `INTER_LANCZOS4` |
@@ -119,10 +119,10 @@ Conservative enhancement chain that cleans noise without degrading text.
 ```mermaid
 flowchart LR
     A[Input] --> B["Median Blur<br/><small>ksize=3</small>"]
-    B --> C["Contrast Stretch<br/><small>P2 → P98</small>"]
-    C --> D["Background Whiten<br/><small>>240 → 255</small>"]
+    B --> C["Contrast Stretch<br/><small>P2 -> P98</small>"]
+    C --> D["Background Whiten<br/><small>>240 -> 255</small>"]
     D --> E["Spot Cleaning<br/><small>Connected components</small>"]
-    E --> F["Gamma Correction<br/><small>γ=0.92</small>"]
+    E --> F["Gamma Correction<br/><small>gamma=0.92</small>"]
     F --> G[Output]
 ```
 
@@ -132,12 +132,12 @@ Uses `cv2.connectedComponentsWithStats` to identify and remove noise:
 
 | Condition | Action |
 |:----------|:-------|
-| Area ≤ 15 px | Remove (tiny speckles) |
-| Area ≤ 50 px AND aspect ratio < 2 | Remove (square-ish dots) |
+| Area <= 15 px | Remove (tiny speckles) |
+| Area <= 50 px AND aspect ratio < 2 | Remove (square-ish dots) |
 
 #### Gamma Correction
 
-Applies a Look-Up Table with γ=0.92:
+Applies a Look-Up Table with gamma=0.92:
 - Slightly darkens mid-tones (text)
 - Increases local contrast against white background
 
@@ -229,7 +229,7 @@ Optional localized OCR pass for missing dialogue.
 | Step | Operation |
 |:-----|:----------|
 | 1 | Identify `comm` blocks with empty `text` |
-| 2 | Crop region: `x: [width × col2_end → width]` |
+| 2 | Crop region: `x: [width * col2_end -> width]` |
 | 3 | OCR with `text_column_prompt` |
 | 4 | Filter out speaker/header patterns |
 | 5 | Zip remaining lines into empty blocks |
@@ -291,28 +291,6 @@ python main.py reparse <PDF_NAME>
 - Updated valid_speakers or valid_locations
 - Changed corrector logic
 - Improved parser algorithms
-
-**Example workflow:**
-
-```bash
-# 1. Run initial OCR (slow: ~3 hours)
-python main.py process AS11_TEC.PDF
-
-# 2. Notice issues, update config/missions.toml
-#    Add: "GRAINED BEAM" = "GRAND BAHAMA"
-
-# 3. Reparse with new config (fast: ~1 minute)
-python main.py reparse AS11_TEC.PDF
-
-# 4. Post-process to apply block merging
-python main.py postprocess AS11_TEC.PDF
-
-# 5. Export to merged JSON
-python main.py export AS11_TEC.PDF
-
-# 6. Validate quality
-python analyze_quality.py
-```
 
 ### Post-Process Only (Fastest: 30 seconds)
 

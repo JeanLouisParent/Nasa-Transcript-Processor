@@ -1,19 +1,19 @@
 # Post-Processing & Text Intelligence
 
-> Parsing algorithms and correction logic for transforming raw OCR into structured transcripts.
+Parsing algorithms and correction logic for transforming raw OCR into structured transcripts.
 
 ## Table of Contents
 
 - [Overview](#overview)
-- [Block Parser](#1-block-parser)
-- [Text Correction](#2-text-correction)
-- [Speaker Standardization](#3-speaker-standardization)
-- [Location Correction](#4-location-correction)
-- [Timestamp Recovery](#5-timestamp-recovery)
-- [Metadata Reconstruction](#6-metadata-reconstruction)
-- [Tape Number Validation](#7-tape-number-validation)
-- [Global Timestamp Index](#8-global-timestamp-index)
-- [Advanced Timestamp Features](#9-advanced-timestamp-features)
+- [1. Block Parser](#1-block-parser)
+- [2. Text Correction](#2-text-correction)
+- [3. Speaker Standardization](#3-speaker-standardization)
+- [4. Location Correction](#4-location-correction)
+- [5. Timestamp Recovery](#5-timestamp-recovery)
+- [6. Metadata Reconstruction](#6-metadata-reconstruction)
+- [7. Tape Number Validation](#7-tape-number-validation)
+- [8. Global Timestamp Index](#8-global-timestamp-index)
+- [9. Advanced Timestamp Features](#9-advanced-timestamp-features)
 
 ---
 
@@ -53,10 +53,10 @@ flowchart TD
 
 The parser transforms raw OCR lines into structured JSON blocks using a state machine with regex heuristics. Implementation is split across specialized modules:
 
-- `patterns.py` — Regex patterns and constants
-- `preprocessor.py` — Line splitting and cleaning
-- `state_machine.py` — Core parsing logic
-- `block_builder.py` — JSON construction with corrections
+- `patterns.py`: Regex patterns and constants
+- `preprocessor.py`: Line splitting and cleaning
+- `state_machine.py`: Core parsing logic
+- `block_builder.py`: JSON construction with corrections
 
 ### 1.1 Pre-processing: Line Splitting
 
@@ -64,7 +64,7 @@ Raw OCR often "glues" columns together. Before classification, the parser runs i
 
 | Step | Operation |
 |:-----|:----------|
-| 1 | Strip LLM tags (e.g., `[COMM]`) → store as `forced_type` |
+| 1 | Strip LLM tags (e.g., `[COMM]`) -> store as `forced_type` |
 | 2 | Scan for embedded timestamps after index 12 |
 | 3 | Scan for revision markers (e.g., `(REV 1)`) |
 | 4 | Validate split points (must be followed by speaker/location) |
@@ -125,7 +125,7 @@ flowchart LR
 | `AIR-TO-GROUND VOICE TRANSCRIPTION` | `transcript_header` | Fuzzy-canonicalized |
 | `BEGIN/END LUNAR REV N` | `lunar_rev` | Timestamp formatted as `DD HH MM --` |
 | `END OF TAPE` | `end_of_tape` | Increments tape counter |
-| `***` | — | Converted to footer block |
+| `***` | - | Converted to footer block |
 
 ---
 
@@ -166,12 +166,12 @@ flowchart TD
 #### Scoring Formula
 
 ```
-Score = (Ratio × 10000) - (LengthDiff × 500) + Frequency + ContextBonus
+Score = (Ratio * 10000) - (LengthDiff * 500) + Frequency + ContextBonus
 ```
 
 | Factor | Description |
 |:-------|:------------|
-| **Ratio** | Gestalt pattern matching similarity (0.0–1.0) |
+| **Ratio** | Gestalt pattern matching similarity (0.0-1.0) |
 | **LengthDiff** | Penalty for changing word length |
 | **Frequency** | Raw count from lexicon |
 | **ContextBonus** | +100 if `(prev_word, candidate)` in bigrams |
@@ -190,7 +190,7 @@ Corrects speaker callsigns against a strict allowlist.
 |:-----|:----------|
 | 1 | Normalize: remove all chars except alphanumeric and `/` |
 | 2 | Recovery: if speaker empty but text starts with known token, extract it |
-| 3 | Heuristics: `C`→`CC`, `CT`→`CMP`, strip parentheses |
+| 3 | Heuristics: `C`->`CC`, `CT`->`CMP`, strip parentheses |
 | 4 | Fuzzy match: `difflib` with cutoff=0.5, prefer same-length |
 
 ### Valid Speakers (Apollo 11 Example)
@@ -264,7 +264,7 @@ Extended character mapping to handle OCR artifacts:
 | `'` | (removed) | Apostrophe artifact |
 | `(`, `)` | `0` | Parentheses as zero |
 
-Example: `"04 12 11 :6"` → `"04 12 11 06"`
+Example: `"04 12 11 :6"` -> `"04 12 11 06"`
 
 ### Day Correction
 
@@ -285,11 +285,11 @@ When parsing timestamp T_curr against T_prev:
 | Step | Condition | Action |
 |:-----|:----------|:-------|
 | **Noise normalization** | Always | Apply character mapping (see above) |
-| **Day correction** | Always | Fix 94→04, 55→05, >10→mod 10 |
+| **Day correction** | Always | Fix 94->04, 55->05, >10->mod 10 |
 | **Sequence reset** | T_curr < T_prev by >1h AND stable run detected | Accept T_curr, flag `sequence_reset` |
-| **Hour snapping** | Delta > 1h OR backward slip | Try snapping to T_prev.hour ± {0,1} if delta becomes 0-600s |
+| **Hour snapping** | Delta > 1h OR backward slip | Try snapping to T_prev.hour +/- {0,1} if delta becomes 0-600s |
 | **Inferred suffix** | OCR reads `04 12 33 ?` | Use T_prev seconds tens + hint |
-| **Inferred tens** | OCR reads `10` but delta ≤ 0 | Add 40s offset ("50→10 fix") |
+| **Inferred tens** | OCR reads `10` but delta <= 0 | Add 40s offset ("50->10 fix") |
 | **Backward slip** | T_curr < T_prev (< 300s) | Keep raw, don't update cursor, flag `out_of_order` |
 | **Forward jump** | Delta > 12h | Force T_curr = T_prev + 1s, flag `corrected_jump` |
 | **Missing** | No timestamp | Infer T = T_prev + 1s, flag `inferred_missing` |
@@ -301,7 +301,7 @@ When parsing timestamp T_curr against T_prev:
 | `sequence_reset` | Large backward jump accepted (validated by stable run) |
 | `corrected_hour` | Hour field repaired via snapping algorithm |
 | `inferred_suffix` | Seconds digit inferred from context |
-| `inferred_tens` | Tens digit corrected (50→10 fix) |
+| `inferred_tens` | Tens digit corrected (50->10 fix) |
 | `inferred_monotonic` | Adjusted to maintain monotonic order |
 | `inferred_missing` | Timestamp was missing, inferred from previous |
 | `out_of_order` | Timestamp is out of order (kept as-is) |
@@ -315,27 +315,27 @@ Example: `04 12 33 51` = Day 4, Hour 12, Minute 33, Second 51
 
 ---
 
-## 5. Metadata Reconstruction
+## 6. Metadata Reconstruction
 
-### 5.1 Page Numbering
+### 6.1 Page Numbering
 
 | Field | Calculation |
 |:------|:------------|
-| **Page** | Logical page index + mission offset (e.g., PDF page 3 → logical page 1 with offset -2) |
+| **Page** | Logical page index + mission offset (e.g., PDF page 3 -> logical page 1 with offset -2) |
 
-### 5.2 Tape Numbering
+### 6.2 Tape Numbering
 
 **See [Section 7: Tape Number Validation](#7-tape-number-validation)** for complete details on the hybrid OCR + validation approach.
 
 Summary: Tape numbers use a hybrid approach that reads OCR-detected values when available, validates them against expected progression, auto-corrects common OCR errors, and falls back to dead reckoning when needed. This achieves 100% accuracy.
 
-### 5.3 Smart Stitching
+### 6.3 Smart Stitching
 
 Merges `continuation` blocks into preceding `comm` blocks.
 
 **Condition:** Current block is `continuation` AND previous is `comm`
 
-**Merge rule:** If current text starts with lowercase or punctuation → append to previous text with space
+**Merge rule:** If current text starts with lowercase or punctuation -> append to previous text with space
 
 ---
 
@@ -363,12 +363,12 @@ flowchart TD
     H --> J{Validate OCR}
     I --> J
 
-    J -->|Exact Match| K[✓ Trust OCR]
+    J -->|Exact Match| K[Trust OCR]
     J -->|Close Match| L[Detect Error Type]
     J -->|No OCR| M[Use Expected]
 
-    L -->|Digit Drop| N[Correct: 6→66]
-    L -->|Single Digit| O[Correct: 73→72]
+    L -->|Digit Drop| N[Correct: 6->66]
+    L -->|Single Digit| O[Correct: 73->72]
     L -->|Invalid Y| P[Use Expected]
 
     K --> Q[Return tape_x, tape_y]
@@ -384,12 +384,12 @@ The validator applies strict rules to ensure monotonic tape progression:
 
 | Rule | Description | Example |
 |:-----|:------------|:--------|
-| **Exact Match** | OCR matches expected exactly → trust OCR | OCR: `67/5`, Expected: `67/5` → ✓ `67/5` |
-| **Y Must Match** | Y value must be exact (no regression) | OCR: `67/4`, Expected: `67/5` → ✗ Use `67/5` |
-| **X Tolerance** | X can vary by ±1 for adjacent tapes | OCR: `68/5`, Expected: `67/5` → ✓ `68/5` (likely correct) |
-| **END OF TAPE Only** | Y=1 only trusted if prev page had END OF TAPE | OCR: `68/1`, Expected: `67/5`, no EOT → ✗ Use `67/5` |
-| **Digit Drop Fix** | Single digit X likely means digit dropped | OCR: `6/5`, Expected: `66/5` → ✓ Correct to `66/5` |
-| **Single Digit Error** | One digit differs in X (same length) | OCR: `73/5`, Expected: `72/5` → ✓ Correct to `72/5` |
+| **Exact Match** | OCR matches expected exactly -> trust OCR | OCR: `67/5`, Expected: `67/5` -> `67/5` |
+| **Y Must Match** | Y value must be exact (no regression) | OCR: `67/4`, Expected: `67/5` -> Use `67/5` |
+| **X Tolerance** | X can vary by +/-1 for adjacent tapes | OCR: `68/5`, Expected: `67/5` -> `68/5` (likely correct) |
+| **END OF TAPE Only** | Y=1 only trusted if prev page had END OF TAPE | OCR: `68/1`, Expected: `67/5`, no EOT -> Use `67/5` |
+| **Digit Drop Fix** | Single digit X likely means digit dropped | OCR: `6/5`, Expected: `66/5` -> Correct to `66/5` |
+| **Single Digit Error** | One digit differs in X (same length) | OCR: `73/5`, Expected: `72/5` -> Correct to `72/5` |
 
 ### 7.3 Error Correction Examples
 
@@ -436,25 +436,25 @@ def validate_and_correct_tape(
 3. **Parse OCR:** Extract X and Y from format "X/Y"
 
 4. **Validate:**
-   - Exact match → trust OCR
-   - Y matches expected, X close → trust OCR
-   - Y matches expected, X has digit error → correct X, trust Y
-   - Y = 1 and expected Y = 1 → validate X is reasonable
-   - Otherwise → use expected (OCR is wrong)
+   - Exact match -> trust OCR
+   - Y matches expected, X close -> trust OCR
+   - Y matches expected, X has digit error -> correct X, trust Y
+   - Y = 1 and expected Y = 1 -> validate X is reasonable
+   - Otherwise -> use expected (OCR is wrong)
 
 5. **Return:** `(validated_x, validated_y, was_corrected)`
 
 ### 7.5 Results
 
 **Performance on AS11_TEC.PDF (Apollo 11):**
-- ✅ **624 pages processed**
-- ✅ **0 tape errors**
-- ✅ **Tape range: 1/2 → 85/7**
-- ✅ **100% accuracy maintained**
+- **624 pages processed**
+- **0 tape errors**
+- **Tape range: 1/2 -> 85/7**
+- **100% accuracy maintained**
 
 ### 7.6 Configuration
 
-No configuration needed—tape validation runs automatically during `process` and `reparse` commands. The validator is designed to be mission-agnostic and works with any NASA transcript format that uses tape numbers.
+No configuration needed-tape validation runs automatically during `process` and `reparse` commands. The validator is designed to be mission-agnostic and works with any NASA transcript format that uses tape numbers.
 
 ---
 
@@ -503,7 +503,7 @@ When a timestamp appears incorrect (large delta or backward jump), the algorithm
 
 1. **Checks same-day constraint**: Only attempts if `current_ts.day == last_ts.day`
 2. **Generates candidates**: Tests `last_ts.hour + {0, -1, +1}`
-3. **Validates delta**: Each candidate must have `0 < delta ≤ 600s` from last_ts
+3. **Validates delta**: Each candidate must have `0 < delta <= 600s` from last_ts
 4. **Selects best**: Chooses candidate with smallest positive delta
 5. **Applies correction**: Updates timestamp and flags `corrected_hour`
 
@@ -511,7 +511,7 @@ When a timestamp appears incorrect (large delta or backward jump), the algorithm
 - Last: `04 22 45 30`
 - Current (OCR): `04 12 46 15` (hour misread as "12" instead of "22")
 - Delta with hour=12: -10h 45m (invalid)
-- Try hour=22: +45s ✓
+- Try hour=22: +45s
 - Result: `04 22 46 15` with flag `corrected_hour`
 
 ### 9.2 Sequence Reset Detection
@@ -525,13 +525,13 @@ When encountering a large backward jump (> 1 hour):
 1. **Look ahead**: Scan next 6 blocks for timestamps
 2. **Collect candidates**: Find at least 3 timestamps
 3. **Validate monotonicity**: Each must be > previous
-4. **Validate spacing**: Deltas must be ≤ 600s
+4. **Validate spacing**: Deltas must be <= 600s
 5. **Accept reset**: If stable run found, accept backward jump as intentional
 
 **Example**:
 - Current sequence: `04 22 45 30`, `04 22 46 00`, `04 22 46 15`
 - New timestamp: `03 10 12 00` (13h backward!)
-- Look ahead finds: `03 10 12 15`, `03 10 12 30`, `03 10 13 00` (stable run ✓)
+- Look ahead finds: `03 10 12 15`, `03 10 12 30`, `03 10 13 00` (stable run)
 - Result: Accept `03 10 12 00` as `sequence_reset`
 
 This prevents false corrections when transcripts include replayed audio or alternate timelines.
@@ -551,7 +551,7 @@ Matches 4 groups of 1-2 characters (including OCR noise chars like C, S, B) sepa
 **Example**:
 - Input: `"05:00:05:15 GO"`
 - Match: groups = `('05', '00', '05', '15')`
-- Normalize each: `05` (pad singles), map C→0, S→5, B→8
+- Normalize each: `05` (pad singles), map C->0, S->5, B->8
 - Output: `"05 00 05 15 GO"`
 
 This ensures even heavily corrupted timestamps can be recognized and parsed correctly.

@@ -37,6 +37,10 @@ input/
 # Large files
 *.pdf
 
+# Export formats
+*.html
+*.csv
+
 # OS
 .DS_Store
 Thumbs.db

@@ -122,7 +122,7 @@ python main.py export AS11_TEC.PDF
 | `process <PDF>`     | Run the full pipeline (image + OCR + export)  |
 | `reparse <PDF>`     | Reparse pages from stored OCR text (skip OCR) |
 | `postprocess <PDF>` | Post-process existing per-page JSON           |
-| `export <PDF>`      | Regenerate merged JSON and TXT                |
+| `export <PDF>`      | Regenerate merged JSON                         |
 | `info <PDF>`        | Display PDF metadata and page count           |
 
 ### Common Options
@@ -141,7 +141,6 @@ Outputs are generated in the `output/` directory:
 ```
 output/AS11_TEC/
 ├── AS11_TEC_merged.json      # Complete structured transcript
-├── AS11_TEC_transcript.txt   # Human-readable transcript
 └── pages/
     └── Page_001/
         ├── AS11_TEC_page_0001.json  # Per-page structured data

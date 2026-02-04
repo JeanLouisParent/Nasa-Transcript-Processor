@@ -29,6 +29,8 @@ class TextCorrector:
         self.vocab = set()
         self.word_freq = Counter()
         self.bigram_freq = Counter()
+        self.mission_keywords_phrases: list[str] = []
+        self._mission_keyword_tokens: dict[str, list[str]] = {}
 
         # Default common NASA OCR fixes (generic)
         self.replacements = {
@@ -48,11 +50,68 @@ class TextCorrector:
 
         # Add mission keywords to vocab with a high frequency to protect them
         if mission_keywords:
+            self.mission_keywords_phrases = [kw.upper() for kw in mission_keywords if kw]
+            self._mission_keyword_tokens = {
+                kw: [tok for tok in kw.split() if tok]
+                for kw in self.mission_keywords_phrases
+            }
             for kw_phrase in mission_keywords:
                 for word in kw_phrase.split():
                     w_lower = word.lower()
                     self.vocab.add(w_lower)
                     self.word_freq[w_lower] = max(self.word_freq.get(w_lower, 0), 100)
+
+    @staticmethod
+    def _station_variants(station: str) -> list[str]:
+        normalized = re.sub(r"[^A-Z0-9 ]", "", station.upper())
+        tokens = [tok for tok in normalized.split() if tok]
+        if not tokens:
+            return []
+
+        variants: list[str] = []
+        max_shift = min(2, len(tokens) - 1)
+        for shift in range(max_shift + 1):
+            variant_tokens = tokens[shift:]
+            while variant_tokens and variant_tokens[0] in {"AND", "THE", "AT", "IN", "ON", "OF"}:
+                variant_tokens = variant_tokens[1:]
+            if variant_tokens:
+                variants.append(" ".join(variant_tokens))
+
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for variant in variants:
+            if variant not in seen:
+                seen.add(variant)
+                deduped.append(variant)
+        return deduped
+
+    def _match_mission_keyword_phrase(self, station: str) -> str | None:
+        if not self.mission_keywords_phrases:
+            return None
+
+        variants = self._station_variants(station)
+        if not variants:
+            return None
+        for variant in variants:
+            if variant in self.mission_keywords_phrases:
+                return variant
+
+        best_kw: str | None = None
+        best_score = 0.0
+        for variant in variants:
+            var_tokens = variant.split()
+            for kw in self.mission_keywords_phrases:
+                score = difflib.SequenceMatcher(None, variant, kw).ratio()
+                kw_tokens = self._mission_keyword_tokens.get(kw, [])
+                if var_tokens and kw_tokens:
+                    if var_tokens[-1] == kw_tokens[-1]:
+                        score += 0.04
+                    overlap = len(set(var_tokens) & set(kw_tokens))
+                    score += 0.02 * overlap
+                if score > best_score:
+                    best_score = score
+                    best_kw = kw
+        return best_kw if best_score >= 0.64 else None
 
     def _load_lexicon(self, path: Path):
         try:
@@ -72,6 +131,123 @@ class TextCorrector:
 
         except Exception as e:
             print(f"Error loading lexicon: {e}")
+
+    @staticmethod
+    def _canonicalize_mode_token(token: str) -> str | None:
+        """
+        Canonicalize OCR-corrupted AGC mode tokens (e.g., POOR -> P00) in context.
+        Returns None when token does not look like a mode token.
+        """
+        if not token:
+            return None
+        raw = re.sub(r"[^A-Z0-9]", "", token.upper())
+        if len(raw) < 2:
+            return None
+        if raw[0] != "P":
+            return None
+
+        char_map = {
+            "O": "0",
+            "Q": "0",
+            "D": "0",
+            "U": "0",
+            "I": "1",
+            "L": "1",
+            "Z": "2",
+            "S": "5",
+            "B": "8",
+        }
+
+        tail = []
+        for ch in raw[1:]:
+            tail.append(char_map.get(ch, ch))
+            if len(tail) == 2:
+                break
+        if len(tail) < 2:
+            tail.append("0")
+        if len(tail) < 2:
+            return None
+
+        # Conservative: accept only two-digit tail after normalization.
+        if not all(c.isdigit() for c in tail[:2]):
+            return None
+        return f"P{tail[0]}{tail[1]}"
+
+    def normalize_structured_ocr_patterns(self, text: str) -> str:
+        """
+        Generic normalizations for structured telemetry-style OCR artifacts.
+        """
+        if not text:
+            return text
+
+        def mode_repl(match: re.Match) -> str:
+            tok = match.group(1)
+            canon = self._canonicalize_mode_token(tok)
+            return canon if canon else tok
+
+        def mode_token(token: str) -> str:
+            canon = self._canonicalize_mode_token(token)
+            return canon if canon else token
+
+        # Program mode tokens near ACCEPT/DATA contexts.
+        text = re.sub(
+            r"\b(P[A-Z0-9]{1,4})\b(?=\s+(?:AND|IN)\s+(?:ACCEPT|DATA)\b)",
+            mode_repl,
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            r"\b(IN|AND)\s+(P[A-Z0-9]{1,4})\b(?=\s+(?:ACCEPT|DATA)\b)",
+            lambda m: f"{m.group(1)} {mode_token(m.group(2))}",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            r"\b(HOUSTON,\s+)(P[A-Z0-9]{1,4})\b",
+            lambda m: f"{m.group(1)}{mode_token(m.group(2))}",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            r"\b(P[A-Z0-9]{1,4})\b(?=,\s*HOUSTON\b)",
+            mode_repl,
+            text,
+            flags=re.IGNORECASE,
+        )
+
+        # Navigation-like numeric groups: optional "(" before a 3-part tuple
+        # where first field is often zero-dropped by OCR. Remove stray "(".
+        def coord_repl(match: re.Match) -> str:
+            a, b, c = match.group(1), match.group(2), match.group(3)
+            if len(a) < 3:
+                a = a.zfill(3)
+            return f"{a} {b} {c}"
+
+        text = re.sub(r"\((\d{1,3})\s+(\d{2})\s+(\d{4})(?=[,\s])", coord_repl, text)
+
+        # DELTA-P readback marker is commonly OCR'd as DELTA-UP/DELTA-CUP.
+        text = re.sub(r"\bDELTA-(?:C?UP)\b", "DELTA-P", text, flags=re.IGNORECASE)
+        # LM/CM is sometimes OCR'd as IM/CM in this context.
+        text = re.sub(r"\bIM/CM\b", "LM/CM", text, flags=re.IGNORECASE)
+
+        # Normalize mission station annotations using configured mission keywords.
+        # Example OCR: "AND GRAHAM ISLANDS (REV 1)" -> "GRAND BAHAMA ISLANDS (REV 1)".
+        def station_repl(match: re.Match) -> str:
+            raw_station = match.group(1).strip()
+            marker = match.group(2).upper()
+            number = match.group(3)
+            matched = self._match_mission_keyword_phrase(raw_station)
+            if not matched:
+                return match.group(0)
+            return f"{matched} ({marker} {number})"
+
+        text = re.sub(
+            r"\b([A-Z][A-Z0-9 ]{2,40}?)\s*\((REV|PASS)\s*(\d+)\)",
+            station_repl,
+            text,
+            flags=re.IGNORECASE,
+        )
+        return text
 
     def clean_noise(self, text: str) -> str:
         """Remove common OCR noise and fix hyphenation."""
@@ -216,6 +392,9 @@ class TextCorrector:
                 def fix_hyphenated(m):
                     nonlocal prev_word
                     word = m.group(0)
+                    # Preserve technical uppercase hyphen tokens (e.g., DELTA-P, S-IVB, LOI-2).
+                    if re.match(r"^[A-Z0-9]{2,}-[A-Z0-9]{1,4}$", word):
+                        return word
                     parts = word.split("-")
                     if any(re.search(r"\d", part) for part in parts):
                         return word
@@ -265,6 +444,8 @@ class TextCorrector:
         # spell checking has finished modifying the text
         for pattern, replacement in self.replacements.items():
             corrected = re.sub(pattern, replacement, corrected)
+
+        corrected = self.normalize_structured_ocr_patterns(corrected)
 
         return corrected
 

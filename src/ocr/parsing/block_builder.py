@@ -593,7 +593,62 @@ def build_page_json(
     cleaned_blocks = []
     # Match uppercase station-like names only, to avoid capturing normal prose.
     annotation_pattern = re.compile(r"\b([A-Z]{3,}(?:\s+[A-Z]{2,}){0,4})\s*\((REV|PASS)\s*(\d+)\)\s*")
-    mission_keyword_set = {kw.upper() for kw in (mission_keywords or [])}
+    keyword_candidates = [kw.upper() for kw in (mission_keywords or [])]
+    keyword_tokens = {
+        kw: [tok for tok in kw.split() if tok]
+        for kw in keyword_candidates
+    }
+
+    def station_variants(station: str) -> list[str]:
+        normalized = re.sub(r"[^A-Z0-9 ]", "", station.upper())
+        tokens = [tok for tok in normalized.split() if tok]
+        if not tokens:
+            return []
+
+        variants: list[str] = []
+        max_shift = min(2, len(tokens) - 1)
+        for shift in range(max_shift + 1):
+            variant_tokens = tokens[shift:]
+            # Drop common connective prefix words that OCR often keeps in station snippets.
+            while variant_tokens and variant_tokens[0] in {"AND", "THE", "AT", "IN", "ON", "OF"}:
+                variant_tokens = variant_tokens[1:]
+            if variant_tokens:
+                variants.append(" ".join(variant_tokens))
+
+        # De-duplicate while preserving order.
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for var in variants:
+            if var not in seen:
+                seen.add(var)
+                deduped.append(var)
+        return deduped
+
+    def match_station_name(station: str) -> str | None:
+        variants = station_variants(station)
+        if not variants:
+            return None
+        for variant in variants:
+            if variant in keyword_candidates:
+                return variant
+
+        best_kw: str | None = None
+        best_score = 0.0
+        for variant in variants:
+            var_tokens = variant.split()
+            for kw in keyword_candidates:
+                score = difflib.SequenceMatcher(None, variant, kw).ratio()
+                kw_toks = keyword_tokens.get(kw, [])
+                if var_tokens and kw_toks:
+                    if var_tokens[-1] == kw_toks[-1]:
+                        score += 0.04
+                    overlap = len(set(var_tokens) & set(kw_toks))
+                    score += 0.02 * overlap
+                if score > best_score:
+                    best_score = score
+                    best_kw = kw
+
+        return best_kw if best_score >= 0.64 else None
 
     for block in blocks:
         if block.get("text"):
@@ -618,11 +673,11 @@ def build_page_json(
                     number = annotation_match.group(3)
 
                     # If mission keywords are available, only extract known station-like terms.
-                    plausible_station = bool(re.match(r"^[A-Z]{3,10}(?:\s+[A-Z]{2,10}){0,2}$", station))
-                    if mission_keyword_set and station not in mission_keyword_set and not plausible_station:
+                    matched_station = match_station_name(station)
+                    if mission_keywords and not matched_station:
                         break
-
-                    annotations.append(f"{station} ({marker} {number})")
+                    station_label = matched_station or station
+                    annotations.append(f"{station_label} ({marker} {number})")
                     current_text = (
                         current_text[:annotation_match.start()] + current_text[annotation_match.end():]
                     ).strip()

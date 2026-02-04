@@ -231,7 +231,6 @@ flowchart TB
 output/
 └── AS11_TEC/
     ├── AS11_TEC_merged.json          # Global merged transcript
-    ├── AS11_TEC_transcript.txt       # Formatted text output
     └── pages/
         └── Page_001/
             ├── AS11_TEC_page_0001.json   # Structured page data

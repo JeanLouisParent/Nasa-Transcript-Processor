@@ -251,8 +251,6 @@ At the end of processing, the pipeline generates merged outputs.
 | File | Content |
 |:-----|:--------|
 | `<stem>_merged.json` | All pages combined in one JSON (keys like `Page 001`) |
-| `<stem>_transcript.txt` | Formatted human-readable transcript |
-| `<stem>_transcript.md` | Markdown-formatted transcript |
 
 ### Manual Export
 

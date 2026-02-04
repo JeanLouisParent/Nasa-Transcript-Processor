@@ -223,6 +223,28 @@ def merge_payloads(preferred: dict, fallback: dict) -> dict:
                 fb_score = text_quality_score(fb_text)
                 if (
                     pref_text
+                    and fb_text
+                    and pref_text in fb_text
+                    and len(fb_text) - len(pref_text) >= 8
+                ):
+                    preferred_block["text"] = fb_text
+                    if not preferred_block.get("speaker") and fallback_block.get("speaker"):
+                        preferred_block["speaker"] = fallback_block.get("speaker")
+                    if not preferred_block.get("location") and fallback_block.get("location"):
+                        preferred_block["location"] = fallback_block.get("location")
+                elif (
+                    pref_text
+                    and fb_text
+                    and len(fb_text) - len(pref_text) >= 8
+                    and word_overlap_ratio(pref_text, fb_text) >= 0.85
+                ):
+                    preferred_block["text"] = fb_text
+                    if not preferred_block.get("speaker") and fallback_block.get("speaker"):
+                        preferred_block["speaker"] = fallback_block.get("speaker")
+                    if not preferred_block.get("location") and fallback_block.get("location"):
+                        preferred_block["location"] = fallback_block.get("location")
+                elif (
+                    pref_text
                     and pref_score >= 0.8
                     and len(pref_text.strip()) <= 15
                     and len(fb_text.strip()) >= 25
@@ -676,10 +698,8 @@ def export(pdf_name: str):
         print(f"Error: PDF not found: {pdf_path}")
         raise SystemExit(1)
 
-    json_path, txt_path, md_path = write_global_outputs(global_cfg.output_dir, pdf_path.stem)
+    json_path = write_global_outputs(global_cfg.output_dir, pdf_path.stem)
     print(f"Wrote global JSON: {json_path}")
-    print(f"Wrote transcript TXT: {txt_path}")
-    print(f"Wrote transcript MD: {md_path}")
 
 
 @cli.command("postprocess")
@@ -697,8 +717,21 @@ def postprocess_json(pdf_name: str):
     mission_overrides = mission_cfg.layout_overrides or {}
 
     valid_speakers = mission_overrides.get("valid_speakers")
-    mission_keywords = mission_overrides.get("mission_keywords")
     valid_locations = mission_overrides.get("valid_locations")
+    lexicon_cfg = global_cfg.pipeline_defaults.get("lexicon", {})
+    global_mission_keywords = (
+        lexicon_cfg.get("mission_keywords")
+        if isinstance(lexicon_cfg, dict)
+        else []
+    )
+    mission_keyword_overrides = mission_overrides.get("mission_keywords", [])
+    mission_keywords: list[str] = []
+    for kw in (global_mission_keywords or []):
+        if kw not in mission_keywords:
+            mission_keywords.append(kw)
+    for kw in (mission_keyword_overrides or []):
+        if kw not in mission_keywords:
+            mission_keywords.append(kw)
 
     global_parser = global_cfg.pipeline_defaults.get("parser", {})
     if isinstance(global_parser, dict):
@@ -1156,10 +1189,8 @@ def process(
                 )
 
     # Always refresh global outputs at the end of a process run.
-    merged_json, transcript_txt, transcript_md = write_global_outputs(global_cfg.output_dir, pdf_path.stem)
+    merged_json = write_global_outputs(global_cfg.output_dir, pdf_path.stem)
     print(f"Wrote global JSON: {merged_json}")
-    print(f"Wrote transcript TXT: {transcript_txt}")
-    print(f"Wrote transcript MD: {transcript_md}")
 
     console.finish()
 

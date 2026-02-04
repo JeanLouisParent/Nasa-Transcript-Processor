@@ -186,18 +186,13 @@ def render_transcript_markdown(pages: list[PageBundle], pdf_stem: str) -> str:
     return "\n".join(lines)
 
 
-def write_global_outputs(output_dir: Path, pdf_stem: str) -> tuple[Path, Path, Path]:
+def write_global_outputs(output_dir: Path, pdf_stem: str) -> Path:
     pages = collect_page_jsons(output_dir, pdf_stem)
     global_json = build_global_json(pdf_stem, pages)
     output_root = output_dir / pdf_stem
     output_root.mkdir(parents=True, exist_ok=True)
 
     json_path = output_root / f"{pdf_stem}_merged.json"
-    txt_path = output_root / f"{pdf_stem}_transcript.txt"
-    md_path = output_root / f"{pdf_stem}_transcript.md"
-
     json_path.write_text(json.dumps(global_json, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    txt_path.write_text(render_transcript_text(pages), encoding="utf-8")
-    md_path.write_text(render_transcript_markdown(pages, pdf_stem), encoding="utf-8")
 
-    return json_path, txt_path, md_path
+    return json_path

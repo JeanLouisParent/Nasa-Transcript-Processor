@@ -119,7 +119,16 @@ def parse_ocr_text(
     def take_speaker_tokens(tokens: list[str]) -> tuple[str, list[str]]:
         import difflib
         speaker_tokens = []
+        valid_speaker_set = {s.upper() for s in (valid_speakers or [])}
         while tokens and len(speaker_tokens) < 3:
+            # Prefer exact multi-token speaker names first (e.g. "SWIM 1", "PRESIDENT NIXON")
+            if valid_speaker_set:
+                max_n = min(3, len(tokens))
+                for n in range(max_n, 1, -1):
+                    candidate = " ".join(tokens[:n]).upper().strip()
+                    if candidate in valid_speaker_set:
+                        return candidate, tokens[n:]
+
             token = tokens[0]
             if len(token) == 1:
                 break
@@ -127,6 +136,10 @@ def parse_ocr_text(
                 cleaned = token.rstrip("?")
                 # If valid_speakers is provided, only consume tokens that match
                 if valid_speakers:
+                    # If token is a prefix of a known multi-token speaker, don't consume partially.
+                    prefix = f"{cleaned.upper()} "
+                    if any(v.startswith(prefix) for v in valid_speaker_set):
+                        break
                     # Check if token fuzzy matches any valid speaker
                     matches = difflib.get_close_matches(cleaned.upper(), valid_speakers, n=1, cutoff=0.7)
                     if not matches:

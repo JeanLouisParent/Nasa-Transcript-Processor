@@ -493,8 +493,9 @@ def build_page_json(
     # Final cleanup of footers and locations on merged text
     # Also extract tracking station annotations as separate blocks
     cleaned_blocks = []
-    # Pattern matches multi-word station names: "GRAND BAHAMA ISLANDS (REV 1)"
-    annotation_pattern = re.compile(r'\b([A-Z]+(?:\s+[A-Z]+)*)\s*\((REV|PASS)\s*(\d+)\)\s*', re.IGNORECASE)
+    # Match uppercase station-like names only, to avoid capturing normal prose.
+    annotation_pattern = re.compile(r"\b([A-Z]{3,}(?:\s+[A-Z]{2,}){0,4})\s*\((REV|PASS)\s*(\d+)\)\s*")
+    mission_keyword_set = {kw.upper() for kw in (mission_keywords or [])}
 
     for block in blocks:
         if block.get("text"):
@@ -504,32 +505,39 @@ def build_page_json(
             text = clean_trailing_footer(text)
 
             # Extract tracking station annotations: "STATIONNAME (REV N)" or "STATIONNAME (PASS N)"
-            annotation_match = annotation_pattern.search(text)
-            if annotation_match and block.get("type") == "comm":
-                # Extract annotation and remove from text
-                station = annotation_match.group(1).upper()
-                marker = annotation_match.group(2).upper()
-                number = annotation_match.group(3)
-                annotation_text = f"{station} ({marker} {number})"
-                text = annotation_pattern.sub('', text).strip()
+            if block.get("type") == "comm":
+                annotations: list[str] = []
+                current_text = text
+                while True:
+                    annotation_match = annotation_pattern.search(current_text)
+                    if not annotation_match:
+                        break
 
-                # Update current block text
-                block["text"] = text
+                    station = annotation_match.group(1).upper().strip()
+                    marker = annotation_match.group(2).upper()
+                    number = annotation_match.group(3)
 
-                # Remove any residual location tag at the start: "(TRANQ) ..."
-                if valid_locations:
-                    for loc in valid_locations:
-                        block["text"] = re.sub(rf"^\({re.escape(loc)}\)\s*", "", block["text"], flags=re.IGNORECASE)
+                    # If mission keywords are available, only extract known station-like terms.
+                    if mission_keyword_set and station not in mission_keyword_set:
+                        break
 
-                # Add the comm block
-                cleaned_blocks.append(block)
+                    annotations.append(f"{station} ({marker} {number})")
+                    current_text = (
+                        current_text[:annotation_match.start()] + current_text[annotation_match.end():]
+                    ).strip()
 
-                # Add annotation as separate block
-                cleaned_blocks.append({
-                    "type": "annotation",
-                    "text": annotation_text
-                })
-                continue
+                if annotations:
+                    block["text"] = current_text
+
+                    # Remove any residual location tag at the start: "(TRANQ) ..."
+                    if valid_locations:
+                        for loc in valid_locations:
+                            block["text"] = re.sub(rf"^\({re.escape(loc)}\)\s*", "", block["text"], flags=re.IGNORECASE)
+
+                    cleaned_blocks.append(block)
+                    for annotation_text in annotations:
+                        cleaned_blocks.append({"type": "annotation", "text": annotation_text})
+                    continue
 
             # Remove any residual location tag at the start: "(TRANQ) ..."
             if valid_locations:

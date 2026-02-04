@@ -48,52 +48,6 @@ flowchart LR
 
 ---
 
-## Tape Number Validation
-
-NASA transcripts are organized by cassette tape numbers in the format `X/Y` (e.g., `67/5` = Cassette 67, Page 5). The pipeline achieves **100% accuracy** across all pages using a hybrid approach:
-
-### How It Works
-
-```mermaid
-flowchart TD
-    A[Read Page] --> B{OCR Detects<br/>Tape Number?}
-    B -->|Yes| C[Extract from Header<br/>e.g., 'Tape 67/5']
-    B -->|No| D[Use Dead Reckoning]
-    C --> E{Validate Against<br/>Expected Value}
-    E -->|Valid| F[✓ Use OCR Value]
-    E -->|Invalid| G[Detect Error Type]
-    G -->|Digit Error| H[Auto-Correct<br/>66→6, 73→3]
-    G -->|Invalid Jump| I[Use Expected Value]
-    H --> F
-    I --> F
-    D --> F
-    F --> J{END OF TAPE<br/>Marker?}
-    J -->|Yes| K[Next: X+1/1]
-    J -->|No| L[Next: X/Y+1]
-```
-
-### Error Correction Examples
-
-| OCR Reading | Expected | Correction | Reason |
-|:------------|:---------|:-----------|:-------|
-| `6/1` | `66/1` | → `66/1` | OCR dropped first digit |
-| `73/5` | `72/5` | → `72/5` | Single digit error in X |
-| `67/1` | `67/2` | → `67/2` | Invalid Y regression (pages only increment) |
-| `68/1` | `67/8` | → `67/8` | False "new tape" without END OF TAPE marker |
-| `None` | `67/5` | → `67/5` | Missing OCR, use calculated value |
-
-### Validation Rules
-
-- ✅ **Y must match exactly** (pages only increment forward: Y, Y+1, Y+2...)
-- ✅ **X can vary by ±1** (handles minor OCR confusion between adjacent tapes)
-- ✅ **Y=1 only trusted if previous page had END OF TAPE marker**
-- ✅ **Automatic correction** for common OCR errors (dropped digits, single-digit mistakes)
-- ✅ **Dead reckoning fallback** when OCR is unreliable or missing
-
-**Result:** Zero tape errors across 624 pages (tapes 1/2 → 85/7) ✨
-
----
-
 ## Quick Start
 
 ### Prerequisites
@@ -252,9 +206,10 @@ See [Configuration Reference](docs/CONFIGURATION.md) for complete details.
 
 | Document | Content |
 |:---------|:--------|
+| [Quick Start Guide](docs/QUICKSTART.md) | Get started in 10 minutes — installation, first run, common workflows |
 | [Architecture](docs/ARCHITECTURE.md) | System design, data structures, module responsibilities |
 | [Pipeline](docs/PIPELINE.md) | Image processing stages, OCR strategy, fast iteration workflows |
-| [Post-Processing](docs/POST_PROCESSING.md) | Parsing algorithms, correction logic, advanced timestamp features |
+| [Post-Processing](docs/POST_PROCESSING.md) | Parsing algorithms, correction logic, tape validation, timestamp features |
 | [Configuration](docs/CONFIGURATION.md) | Complete configuration reference |
 | [Schemas](docs/SCHEMAS.md) | JSON Schema definitions for output validation |
 

@@ -493,7 +493,8 @@ def build_page_json(
     # Final cleanup of footers and locations on merged text
     # Also extract tracking station annotations as separate blocks
     cleaned_blocks = []
-    annotation_pattern = re.compile(r'\b([A-Z]{4,})\s*\((REV|PASS)\s*(\d+)\)\s*', re.IGNORECASE)
+    # Pattern matches multi-word station names: "GRAND BAHAMA ISLANDS (REV 1)"
+    annotation_pattern = re.compile(r'\b([A-Z]+(?:\s+[A-Z]+)*)\s*\((REV|PASS)\s*(\d+)\)\s*', re.IGNORECASE)
 
     for block in blocks:
         if block.get("text"):

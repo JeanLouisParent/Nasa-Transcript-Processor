@@ -85,10 +85,15 @@ class SpeakerCorrector:
                     # Search for speaker in first 4 tokens (skipping likely non-speaker prefixes)
                     for i in range(min(4, len(tokens))):
                         candidate_token = tokens[i]
+                        token_alnum = "".join(ch for ch in candidate_token if ch.isalnum())
+                        looks_like_quoted_single_speaker = (
+                            len(token_alnum) == 1 and token_alnum.isalpha()
+                        )
 
                         # Skip tokens that are clearly not speakers
                         # (timestamps fragments, pure numbers, single chars with quotes/colons)
-                        if (len(candidate_token) <= 2 and any(c in candidate_token for c in "':0123456789")) or \
+                        if ((len(candidate_token) <= 2 and any(c in candidate_token for c in "':0123456789")
+                             and not looks_like_quoted_single_speaker)) or \
                            candidate_token.isdigit() or \
                            all(c in "0123456789: '-" for c in candidate_token):
                             continue

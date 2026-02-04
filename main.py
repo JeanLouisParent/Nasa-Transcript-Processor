@@ -48,6 +48,7 @@ from src.ocr.parsing.block_builder import (
     remove_repeated_phrases,
     clean_or_merge_continuations,
     merge_inline_annotations,
+    merge_fragment_annotations,
 )
 from src.ocr.parsing.patterns import GOSS_NET_RE
 from src.ocr.parsing.patterns import (
@@ -747,6 +748,7 @@ def postprocess_json(pdf_name: str):
         new_blocks = merge_nearby_duplicate_timestamps(new_blocks)
         new_blocks = clean_or_merge_continuations(new_blocks)
         new_blocks = merge_inline_annotations(new_blocks, invalid_location_annotations)
+        new_blocks = merge_fragment_annotations(new_blocks)
         for block in new_blocks:
             if block.get("type") == "comm" and block.get("text"):
                 block["text"] = remove_repeated_phrases(block["text"])

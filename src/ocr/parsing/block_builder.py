@@ -22,7 +22,15 @@ from .patterns import (
     GOSS_NET_RE,
     SPEAKER_TOKEN_RE,
 )
-from .utils import fuzzy_find, is_transcription_header, clean_trailing_footer, extract_header_metadata
+from .utils import (
+    fuzzy_find,
+    is_transcription_header,
+    is_goss_net_noise,
+    is_not1_footer_noise,
+    clean_trailing_footer,
+    clean_leading_footer_noise,
+    extract_header_metadata,
+)
 
 
 EMBEDDED_TIMESTAMP_RE = re.compile(
@@ -37,6 +45,12 @@ SECONDARY_EMBEDDED_RE = re.compile(
     r"\s+([A-Z0-9]{1,8}(?:/[A-Z0-9]{1,8})?)",
     re.IGNORECASE,
 )
+
+PAREN_RADIO_CALL_RE = re.compile(
+    r"\(\s*(OVER|OUT|ROGER|COPY|WILCO|GO AHEAD|SAY AGAIN|STAND BY|STANDBY)\s*([.!?])?\s*\)",
+    re.IGNORECASE,
+)
+ANNOTATION_FRAGMENT_RE = re.compile(r"^[A-Z0-9][A-Z0-9\-./ ]{0,24}\.?$")
 
 
 def _normalize_embedded_timestamp(raw: str) -> str | None:
@@ -265,9 +279,10 @@ def clean_or_merge_continuations(blocks: list[dict]) -> list[dict]:
             cleaned.append(block)
             continue
 
-        text = (block.get("text") or "").strip()
+        text = clean_leading_footer_noise((block.get("text") or "").strip())
         if not text:
             continue
+        block["text"] = text
 
         if EMBEDDED_TIMESTAMP_RE.search(text):
             cleaned.append(block)
@@ -286,6 +301,36 @@ def clean_or_merge_continuations(blocks: list[dict]) -> list[dict]:
             cleaned.append(block)
 
     return cleaned
+
+
+def normalize_parenthesized_radio_calls(text: str) -> str:
+    """
+    Normalize parenthesized radio fillers: "(OVER)" -> "OVER", "(OUT.)" -> "OUT."
+    """
+    if not text:
+        return text
+
+    def repl(match: re.Match) -> str:
+        phrase = match.group(1).upper()
+        punct = match.group(2) or ""
+        return f"{phrase}{punct}"
+
+    normalized = PAREN_RADIO_CALL_RE.sub(repl, text)
+    # Handle malformed OCR where opening/closing parenthesis is missing.
+    normalized = re.sub(
+        r"\(\s*(OVER|OUT|ROGER|COPY|WILCO|GO AHEAD|SAY AGAIN|STAND BY|STANDBY)\b",
+        lambda m: m.group(1).upper(),
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(
+        r"\b(OVER|OUT|ROGER|COPY|WILCO|GO AHEAD|SAY AGAIN|STAND BY|STANDBY)\s*\)",
+        lambda m: m.group(1).upper(),
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(r"\s{2,}", " ", normalized).strip()
+    return normalized
 
 
 def merge_inline_annotations(blocks: list[dict], inline_terms: list[str] | None = None) -> list[dict]:
@@ -315,6 +360,41 @@ def merge_inline_annotations(blocks: list[dict], inline_terms: list[str] | None 
                     cleaned[-1]["text"] = text
             else:
                 cleaned.append({"type": "comm", "text": text})
+            continue
+
+        cleaned.append(block)
+
+    return cleaned
+
+
+def merge_fragment_annotations(blocks: list[dict]) -> list[dict]:
+    """
+    Merge short technical annotation fragments (e.g. "S-IVB.") into the previous text block.
+    """
+    cleaned: list[dict] = []
+    for block in blocks:
+        if block.get("type") != "annotation":
+            cleaned.append(block)
+            continue
+
+        text = (block.get("text") or "").strip()
+        if not text:
+            continue
+
+        upper = text.upper()
+        if (
+            cleaned
+            and cleaned[-1].get("type") in ("comm", "continuation")
+            and ANNOTATION_FRAGMENT_RE.match(upper)
+            and "END OF TAPE" not in upper
+            and "LUNAR REV" not in upper
+            and "REST PERIOD" not in upper
+            and "GOSS NET" not in upper
+            and " TAPE " not in f" {upper} "
+            and " PAGE " not in f" {upper} "
+        ):
+            prev_text = (cleaned[-1].get("text") or "").strip()
+            cleaned[-1]["text"] = f"{prev_text} {text}".strip() if prev_text else text
             continue
 
         cleaned.append(block)
@@ -376,7 +456,11 @@ def build_page_json(
                 block["text"] = "*** Three asterisks denote clipping of words and phrases."
             if (
                 block.get("text")
-                and GOSS_NET_RE.match(block["text"])
+                and (
+                    GOSS_NET_RE.match(block["text"])
+                    or is_goss_net_noise(block["text"])
+                    or is_not1_footer_noise(block["text"])
+                )
                 and block_type in ("continuation", "meta", "annotation")
             ):
                 continue
@@ -444,17 +528,19 @@ def build_page_json(
             if text[:1] in ";,.)" or (text[:1].islower()):
                 merged_blocks[-1]["text"] = (merged_blocks[-1].get("text", "") + " " + text).strip()
                 continue
-        if (
-            block.get("type") == "comm"
-            and not block.get("speaker")
-            and block.get("text")
-            and merged_blocks
-            and merged_blocks[-1].get("type") == "comm"
-        ):
-            text = block["text"]
-            if text[:1] in ";,.)" or (text[:1].islower()):
-                merged_blocks[-1]["text"] = (merged_blocks[-1].get("text", "") + " " + text).strip()
-                continue
+            if (
+                block.get("type") == "comm"
+                and not block.get("speaker")
+                and block.get("text")
+                and merged_blocks
+                and merged_blocks[-1].get("type") == "comm"
+            ):
+                text = block["text"]
+                if is_not1_footer_noise(text):
+                    continue
+                if text[:1] in ";,.)" or (text[:1].islower()):
+                    merged_blocks[-1]["text"] = (merged_blocks[-1].get("text", "") + " " + text).strip()
+                    continue
         if (
             block.get("type") in ("meta", "continuation", "annotation")
             and block.get("text")
@@ -469,6 +555,7 @@ def build_page_json(
     blocks = merged_blocks
     blocks = clean_or_merge_continuations(blocks)
     blocks = merge_inline_annotations(blocks, inline_annotation_terms)
+    blocks = merge_fragment_annotations(blocks)
 
     # Canonicalize REST PERIOD pages
     rest_period_found = any(
@@ -513,7 +600,9 @@ def build_page_json(
             text = block["text"]
             if block.get("type") == "comm":
                 text = remove_repeated_phrases(text)
+                text = normalize_parenthesized_radio_calls(text)
             text = clean_trailing_footer(text)
+            text = clean_leading_footer_noise(text)
 
             # Extract tracking station annotations: "STATIONNAME (REV N)" or "STATIONNAME (PASS N)"
             if block.get("type") == "comm":
@@ -529,7 +618,8 @@ def build_page_json(
                     number = annotation_match.group(3)
 
                     # If mission keywords are available, only extract known station-like terms.
-                    if mission_keyword_set and station not in mission_keyword_set:
+                    plausible_station = bool(re.match(r"^[A-Z]{3,10}(?:\s+[A-Z]{2,10}){0,2}$", station))
+                    if mission_keyword_set and station not in mission_keyword_set and not plausible_station:
                         break
 
                     annotations.append(f"{station} ({marker} {number})")
@@ -579,6 +669,19 @@ def build_page_json(
     lexicon_path = Path("assets/lexicon/apollo11_lexicon.json")
     if lexicon_path.exists():
         blocks = TextCorrector(lexicon_path, text_replacements, mission_keywords).process_blocks(blocks)
-        blocks = [b for b in blocks if not (b.get("text") and GOSS_NET_RE.match(str(b.get("text"))))]
+        blocks = [
+            b for b in blocks
+            if not (
+                b.get("text")
+                and (
+                    GOSS_NET_RE.match(str(b.get("text")))
+                    or is_goss_net_noise(str(b.get("text")))
+                    or (
+                        b.get("type") in ("continuation", "meta", "annotation")
+                        and is_not1_footer_noise(str(b.get("text")))
+                    )
+                )
+            )
+        ]
 
     return {"header": header_info, "blocks": blocks}

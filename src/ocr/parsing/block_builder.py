@@ -471,18 +471,29 @@ def build_page_json(
     blocks = merge_inline_annotations(blocks, inline_annotation_terms)
 
     # Canonicalize REST PERIOD pages
-    rest_period_found = False
+    rest_period_found = any(
+        (b.get("text") and REST_PERIOD_RE.search(b.get("text", "")))
+        for b in blocks
+    )
+    normalized_blocks: list[dict] = []
     for block in blocks:
         text_val = block.get("text", "")
         if text_val and REST_PERIOD_RE.search(text_val) and NO_COMM_RE.search(text_val):
             block["type"] = "meta"
             block["meta_type"] = "rest_period"
-            block["text"] = "REST PERIOD - NO COMMUNICATIONS"
-            rest_period_found = True
+            block["text"] = "REST PERIOD"
+        elif text_val and REST_PERIOD_RE.search(text_val):
+            block["type"] = "meta"
+            block["meta_type"] = "rest_period"
+            block["text"] = "REST PERIOD"
         if text_val and is_transcription_header(text_val):
+            if rest_period_found:
+                continue
             block["type"] = "meta"
             block["meta_type"] = "transcript_header"
             block["text"] = "AIR-TO-GROUND VOICE TRANSCRIPTION"
+        normalized_blocks.append(block)
+    blocks = normalized_blocks
 
     if blocks and blocks[0]["type"] == "continuation" and previous_block_type in ("comm", "continuation"):
         blocks[0]["continuation_from_prev"] = True

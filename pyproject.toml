@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nasa-transcript-processor"
+version = "1.0.0"
+description = "Industrial image processing pipeline for NASA mission transcripts"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "NASA Transcript Processing Team" }]
+keywords = ["nasa", "apollo", "transcript", "ocr", "image-processing", "pdf"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+
+dependencies = [
+    "pymupdf>=1.23.0",
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0",
+    "click>=8.1.0",
+    "tqdm>=4.66.0",
+    "loguru>=0.7.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0.0", "pytest-cov>=4.0.0", "black>=23.0.0", "ruff>=0.1.0"]
+
+[project.scripts]
+nasa-transcript = "main:cli"
+
+[project.urls]
+Homepage = "https://github.com/JeanLouisParent/Nasa-Transcript-Processor"
+Documentation = "https://github.com/JeanLouisParent/Nasa-Transcript-Processor/tree/main/docs"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
+ignore = ["E501"]

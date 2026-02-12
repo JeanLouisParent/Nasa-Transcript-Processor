@@ -1,0 +1,106 @@
+# Global defaults for the pipeline.
+
+# I/O
+input_dir = "input"
+output_dir = "output"
+state_dir = "state"
+
+# OCR Settings
+ocr_url = "http://192.168.1.119:1234"
+ocr_model = "qwen/qwen3-vl-4b"  # Vision model to use
+ocr_prompt = "plain" # "plain" or "column"
+ocr_timeout = 120
+ocr_max_tokens = 4096
+ocr_text_column_pass = true
+ocr_dual_pass = true
+ocr_faint_pass = true
+
+# Processing Settings
+dpi = 300
+parallel = true
+workers = 4
+timing = true
+
+# Image Enhancement
+clahe_clip_limit = 2.0
+bilateral_d = 9
+unsharp_amount = 1.5
+deskew_angle_threshold = 0.5
+
+# Layout Detection
+col1_end = 0.15     # Timestamp column end ratio
+col2_end = 0.30     # Speaker column end ratio
+header_ratio = 0.10 # Header zone ratio
+
+[lexicon]
+mission_keywords = [
+    "CARNARVON", "TANANARIVE", "GUAM", "MADRID", "ASCENSION",
+    "BERMUDA", "CANARY", "HONOLULU", "GOLDSTONE", "MILA",
+    "ARIA",  # Apollo Range Instrumented Aircraft (tracking aircraft)
+    "TEXAS",  # USS Texas (tracking ship)
+    "TEI", "TLI", "LOI", "COI", "EVA", "LM", "CSM", "CMC", "LGC", "DSKY",
+    "GRAND BAHAMA ISLANDS", "GRAND BAHAMA ISLAND", "GUAYMAS", "VANGUARD", "HONEYSUCKLE",
+    # Technical terms with hyphens (preserve exact format for OCR correction)
+    "S-IVB", "S-IV", "AIR-TO-GROUND", "NO-GO",
+    "DELTA-P", "DELTA-V", "DELTA-VC", "DELTA-H", "DELTA-VZ", "DELTA-VT", "DELTA-TIG", "DELTA-R", "DELTA-VX",
+    "LOI-2"
+]
+
+[parser]
+# Global OCR fixes applicable to all missions
+
+# Keywords used to identify headers in transcripts
+header_keywords = ["GOSS", "NET", "TAPE", "PAGE", "APOLLO", "AIR-TO-GROUND"]
+
+# Keywords indicating transitions or periods without communication
+transition_keywords = [
+    "REST PERIOD",
+    "NO COMMUNICATIONS",
+    "NO COMMUNICATION",
+    "LOSS OF SIGNAL",
+    "AOS",
+    "LOS",
+    "SILENCE"
+]
+
+# Keyword indicating end of tape
+end_of_tape_keyword = "END OF TAPE"
+
+[parser.text_replacements]
+"\\bRFV\\b" = "REV"
+"\\bRE V\\b" = "REV"
+"\\bre\\s+id\\b" = "read"
+"(?i)air[-\\s]?two[-\\s]?ground voice transposition" = "AIR-TO-GROUND VOICE TRANSCRIPTION"
+"(?i)air[-\\s]?to[-\\s]?ground voice transposition" = "AIR-TO-GROUND VOICE TRANSCRIPTION"
+"(?i)\\(\\s*go(?:ss|s|st)\\s*net\\s*1\\s*\\)" = "(GOSS NET 1)"
+"\\bwc've\\b" = "we've"
+
+[correctors]
+# Configuration for correction modules
+
+# Common OCR errors for speaker codes (applicable across missions)
+[correctors.speaker_ocr_fixes]
+"CT" = "CMP"
+"CTP" = "CMP"
+"CMF" = "CMP"
+"CMFVERB" = "CMP"
+"IMF" = "LMP"
+"CDF" = "CDR"
+"COMM" = "CC"       # Communications → Capsule Communicator
+"HOUSTON" = "CC"    # Location name in speaker field → CC
+"LIF" = "LMP"       # OCR confusion (F↔P)
+"IMI" = "LMP"       # Heavy OCR corruption
+"CDY" = "CDR"       # OCR confusion (Y↔R)
+"HIM" = "LMP"       # Heavy OCR corruption (appears in text, not just speaker field)
+
+# Invalid annotations that should be filtered out from location field
+[correctors.invalid_location_annotations]
+annotations = [
+    "LAUGHING",
+    "LAUGHTER",
+    "LAUGH",
+    "GARBLE",
+    "GARBLED",
+    "PAUSE",
+    "PAUSED"
+]

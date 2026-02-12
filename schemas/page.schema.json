@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/JeanLouisParent/Nasa-Transcript-Processor/schemas/page.schema.json",
+  "title": "NASA Transcript Page",
+  "description": "Schema for a single processed transcript page",
+  "type": "object",
+  "required": ["header", "blocks"],
+  "additionalProperties": false,
+  "properties": {
+    "header": {
+      "type": "object",
+      "description": "Page metadata",
+      "required": ["page", "tape", "is_apollo_title"],
+      "additionalProperties": false,
+      "properties": {
+        "page": {
+          "type": "integer",
+          "description": "Logical page number (with mission offset applied)",
+          "minimum": 1
+        },
+        "tape": {
+          "type": ["string", "null"],
+          "description": "Tape/reel identifier in format 'X/Y'",
+          "pattern": "^\\d+/\\d+$"
+        },
+        "is_apollo_title": {
+          "type": "boolean",
+          "description": "True if this is a title/cover page"
+        },
+        "page_type": {
+          "type": ["string", "null"],
+          "description": "Special page type indicator",
+          "enum": ["rest_period"]
+        },
+        "footer": {
+          "type": "boolean",
+          "description": "True if a standard footer was detected"
+        }
+      }
+    },
+    "blocks": {
+      "type": "array",
+      "description": "Content blocks extracted from the page",
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/commBlock" },
+          { "$ref": "#/$defs/continuationBlock" },
+          { "$ref": "#/$defs/metaBlock" },
+          { "$ref": "#/$defs/headerBlock" },
+          { "$ref": "#/$defs/footerBlock" },
+          { "$ref": "#/$defs/annotationBlock" },
+          { "$ref": "#/$defs/textBlock" }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "commBlock": {
+      "type": "object",
+      "description": "Communication block with timestamp and speaker",
+      "required": ["type", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "comm"
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "Mission elapsed time in 'DD HH MM SS' format",
+          "pattern": "^\\d{2} \\d{2} \\d{2} \\d{2}$"
+        },
+        "speaker": {
+          "type": "string",
+          "description": "Speaker callsign (e.g., CDR, CC, LMP)"
+        },
+        "location": {
+          "type": "string",
+          "description": "Station/location identifier (e.g., TRANQ, COLUMBIA)"
+        },
+        "text": {
+          "type": "string",
+          "description": "Spoken content"
+        },
+        "timestamp_correction": {
+          "type": "string",
+          "description": "Debug flag indicating what correction was applied",
+          "enum": [
+            "inferred_suffix",
+            "inferred_tens",
+            "inferred_monotonic",
+            "inferred_missing",
+            "out_of_order",
+            "corrected_jump"
+          ]
+        }
+      }
+    },
+    "continuationBlock": {
+      "type": "object",
+      "description": "Text continuing from previous block or page",
+      "required": ["type", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "continuation"
+        },
+        "text": {
+          "type": "string",
+          "description": "Continuation text"
+        },
+        "continuation_from_prev": {
+          "type": "boolean",
+          "description": "True if this continues from the previous page"
+        }
+      }
+    },
+    "metaBlock": {
+      "type": "object",
+      "description": "Metadata block (tape markers, headers, etc.)",
+      "required": ["type", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "meta"
+        },
+        "text": {
+          "type": "string",
+          "description": "Metadata content"
+        },
+        "meta_type": {
+          "type": "string",
+          "description": "Specific metadata category",
+          "enum": [
+            "end_of_tape",
+            "lunar_rev",
+            "rest_period",
+            "transcript_header"
+          ]
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "Associated timestamp (for lunar_rev)",
+          "pattern": "^\\d{2} \\d{2} \\d{2} (\\d{2}|--)$"
+        }
+      }
+    },
+    "headerBlock": {
+      "type": "object",
+      "description": "Page header content",
+      "required": ["type", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "header"
+        },
+        "text": {
+          "type": "string",
+          "description": "Header content"
+        }
+      }
+    },
+    "footerBlock": {
+      "type": "object",
+      "description": "Page footer content",
+      "required": ["type", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "footer"
+        },
+        "text": {
+          "type": "string",
+          "description": "Footer content"
+        }
+      }
+    },
+    "annotationBlock": {
+      "type": "object",
+      "description": "Annotation or note",
+      "required": ["type", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "annotation"
+        },
+        "text": {
+          "type": "string",
+          "description": "Annotation content"
+        }
+      }
+    },
+    "textBlock": {
+      "type": "object",
+      "description": "Plain text block (no classification)",
+      "required": ["type", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "text"
+        },
+        "text": {
+          "type": "string",
+          "description": "Text content"
+        }
+      }
+    }
+  }
+}

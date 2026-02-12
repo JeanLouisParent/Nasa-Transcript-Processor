@@ -1,0 +1,97 @@
+# Configuration centralisée des missions NASA
+
+# Structure:
+# [mission.<id>]
+# file_name = "NomDuFichier.pdf"
+# page_offset = 0 (Décalage entre page PDF et numéro page transcript)
+#
+# Overrides optionnels (surchargent les valeurs par défaut de PipelineConfig):
+# col1_end = 0.15 (Fin colonne timestamp)
+# col2_end = 0.30 (Fin colonne speaker)
+
+[mission.7]
+file_name = "AS07_TEC.PDF"
+page_offset = 0
+
+[mission.8]
+file_name = "AS08_TEC.PDF"
+page_offset = 0
+
+[mission.9]
+file_name = "AS09_TEC.PDF"
+page_offset = 0
+
+[mission.10]
+file_name = "AS10_TEC.PDF"
+page_offset = 0
+
+[mission.11]
+file_name = "AS11_TEC.PDF"
+page_offset = -2
+# Apollo 11 a un layout standard, on garde les défauts
+col1_end = 0.15
+col2_end = 0.30
+# Mission-specific keywords (stations, ships, aircraft)
+mission_keywords = [
+    "MILA",
+    "CANARY",
+    "VANGUARD",
+    "TANANARIVE",
+    "CARNARVON",
+    "HONEYSUCKLE",
+    "GOLDSTONE",
+    "GUAYMAS",
+    "BERMUDA",
+    "GRAND BAHAMA ISLANDS",
+    "ANTIGUA",
+    "REDSTONE",
+    "MERRITT ISLAND",
+    "HAWAII",
+    "HUNTSVILLE",
+    "MSFN",
+    "TEXAS",
+    "ARIA",
+]
+# Valid speakers for correction
+valid_speakers = [
+    "CDR",
+    "CC",
+    "CMP",
+    "LMP",
+    "SC",
+    "MS",
+    "MSFN",
+    "PAO",
+    "CT",
+    "HORNET",
+    "MCC",
+    "SWIM 1",
+    "PRESIDENT NIXON",
+]
+# Valid locations/stations
+# EAGLE = Lunar Module, COLUMBIA = Command Module, TRANQ = Tranquility Base, EVA = Extra-Vehicular Activity
+valid_locations = ["EAGLE", "COLUMBIA", "TRANQ", "EVA"]
+
+[mission.12]
+file_name = "AS12_TEC.PDF"
+page_offset = 0
+
+[mission.13]
+file_name = "AS13_TEC.PDF"
+page_offset = 0
+
+[mission.14]
+file_name = "AS14_TEC.PDF"
+page_offset = 0
+
+[mission.15]
+file_name = "AS15_TEC.PDF"
+page_offset = 0
+
+[mission.16]
+file_name = "AS16_TEC.PDF"
+page_offset = 0
+
+[mission.17]
+file_name = "AS17_TEC.PDF"
+page_offset = 0

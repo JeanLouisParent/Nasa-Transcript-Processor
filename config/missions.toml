@@ -72,6 +72,35 @@ valid_speakers = [
 # EAGLE = Lunar Module, COLUMBIA = Command Module, TRANQ = Tranquility Base, EVA = Extra-Vehicular Activity
 valid_locations = ["EAGLE", "COLUMBIA", "TRANQ", "EVA"]
 
+[mission.11.speaker_ocr_fixes]
+"LIF" = "LMP"
+"IMI" = "LMP"
+"here?" = ""
+"DSKY?" = ""
+"CD" = "CDR"
+"CDF" = "CDR"
+"CIR" = "CDR"
+"CMF" = "CMP"
+"IMP" = "LMP"
+
+# Regex text replacements (applied AFTER spell-checking)
+[mission.11.text_replacements]
+"\\bll\\b" = "11"
+"\\bI1\\b" = "11"
+"\\bil\\b" = "11"
+"(\\w+)'11" = "\\1'll"
+"GRAINED BEAM" = "GRAND BAHAMA"
+"Gunymas" = "Guaymas"
+"PFESS" = "PRESS"
+"PASS light" = "PRESS light"
+"MASTEP" = "MASTER"
+"\\btwelve\\s+(been|had|done|come|got|seen)\\b" = "we've \\1"
+"\\bIM\\b" = "LM"
+"\\bO([1-9])\\b" = "0\\1"
+"^[Rr]'?id\\b" = "I'd"
+"\\bmothers-isn-law\\b" = "mothers-in-law"
+"\\b(His|Is)-IV" = "S-IV"
+
 [mission.12]
 file_name = "AS12_TEC.PDF"
 page_offset = 0

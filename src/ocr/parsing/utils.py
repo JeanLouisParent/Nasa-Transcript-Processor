@@ -91,7 +91,10 @@ def is_goss_net_noise(text: str) -> bool:
 
 def is_not1_footer_noise(text: str) -> bool:
     """
-    Detect OCR garbage variants of footer/header fragments like "(... NOT 1)".
+    Detects OCR garbage variants of footer/header fragments like "(... NOT 1)".
+    
+    Commonly appears as timestamps or page numbers misread at the bottom/top
+    of pages (e.g., "(60:33 NOT 1)").
     """
     if not text:
         return False
@@ -100,6 +103,9 @@ def is_not1_footer_noise(text: str) -> bool:
         return False
     if "NOT" not in raw or "1" not in raw:
         return False
+    # Catch patterns like (60:33 NOT 1) or (00% NOT 1)
+    if re.search(r"\(?[0-9%]{1,2}[:%.][0-9]{2}\s+NOT\s+1\)?", raw):
+        return True
     # Restrict to short, mostly punctuation/uppercase/digits snippets.
     if re.match(r"^\(?\s*[A-Z0-9\.\:\-_%\"' ]{0,20}\s*NOT\s*1\)?\s*$", raw):
         return True

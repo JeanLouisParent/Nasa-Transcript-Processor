@@ -270,58 +270,11 @@ def build_page_json(
         header_info["page_type"] = "rest_period"
 
     # Final cleanup of footers and locations on merged text
-    # Also extract tracking station annotations as separate blocks
-    cleaned_blocks = []
-    # Match uppercase station-like names only, to avoid capturing normal prose.
-    annotation_pattern = re.compile(r"\b([A-Z]{3,}(?:\s+[A-Z]{2,}){0,4})\s*\((REV|PASS)\s*(\d+)\)\s*")
-    keyword_candidates = [kw.upper() for kw in (mission_keywords or [])]
-
     for block in blocks:
         if block.get("text"):
             text = block["text"]
-            if block.get("type") == "comm":
-                text = remove_repeated_phrases(text)
-                text = normalize_parenthesized_radio_calls(text)
             text = clean_trailing_footer(text)
             text = clean_leading_footer_noise(text)
-
-            # Extract tracking station annotations: "STATIONNAME (REV N)" or "STATIONNAME (PASS N)"
-            if block.get("type") == "comm":
-                annotations: list[str] = []
-                current_text = text
-                while True:
-                    annotation_match = annotation_pattern.search(current_text)
-                    if not annotation_match:
-                        break
-
-                    station = annotation_match.group(1).upper().strip()
-                    marker = annotation_match.group(2).upper()
-                    number = annotation_match.group(3)
-
-                    # If mission keywords are available, only extract known station-like terms.
-                    matched_station = match_station_name(station, keyword_candidates)
-                    if mission_keywords and not matched_station:
-                        break
-                    station_label = matched_station or station
-                    annotations.append(f"{station_label} ({marker} {number})")
-                    current_text = (
-                        current_text[:annotation_match.start()] + current_text[annotation_match.end():]
-                    ).strip()
-
-                if annotations:
-                    block["text"] = current_text
-
-                    # Remove any residual location tags (from anywhere in text): "(TRANQ) ..."
-                    if valid_locations:
-                        for loc in valid_locations:
-                            # Remove location tags from anywhere in the text
-                            block["text"] = re.sub(rf"\(\s*{re.escape(loc)}\s*\)\s*", " ", block["text"], flags=re.IGNORECASE)
-                            block["text"] = block["text"].strip()
-
-                    cleaned_blocks.append(block)
-                    for annotation_text in annotations:
-                        cleaned_blocks.append({"type": "annotation", "text": annotation_text})
-                    continue
 
             # Remove any residual location tags (from anywhere in text): "(TRANQ) ..."
             if valid_locations:
@@ -331,7 +284,4 @@ def build_page_json(
                     text = text.strip()
             block["text"] = text.strip()
 
-        cleaned_blocks.append(block)
-
-    blocks = cleaned_blocks
     return {"header": header_info, "blocks": blocks}

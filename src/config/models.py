@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 class LexiconConfig(BaseModel):
     """Configuration for the lexicon-based corrections."""
-    path: Path = Path("assets/lexicon/apollo11_lexicon.json")
+    path: Path = Path("resources/lexicon/apollo11_lexicon.json")
     mission_keywords: list[str] = Field(default_factory=list)
 
 

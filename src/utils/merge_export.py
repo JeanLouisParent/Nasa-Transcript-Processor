@@ -184,37 +184,6 @@ def _apply_text_replacements(text: str, replacements: dict[str, str]) -> str:
     return text
 
 
-def _apply_generic_ocr_fixes(text: str) -> str:
-    """
-    Applies global OCR error corrections that are common across all mission 
-    transcripts (e.g. '0MNI' -> 'OMNI').
-    """
-    if not text:
-        return text
-    # Common OCR swaps: 0 -> O inside specific words
-    text = re.sub(r"\b0MNI\b", "OMNI", text)
-    text = re.sub(r"\bPYR0\b", "PYRO", text)
-    text = re.sub(r"\bC0MM\b", "COMM", text)
-    text = re.sub(r"\b0ver\b", "Over", text, flags=re.IGNORECASE)
-    text = re.sub(r"\b0ut\b", "Out", text, flags=re.IGNORECASE)
-    # Digit/letter confusion: ll, I1, il → 11
-    text = re.sub(r"\bll\b", "11", text)
-    text = re.sub(r"\bI1\b", "11", text)
-    text = re.sub(r"\bil\b", "11", text)
-    # Recover apostrophe after digit fix: word'11 → word'll
-    text = re.sub(r"(\w+)'11\b", r"\1'll", text)
-    # Common OCR vowel confusion in compound words
-    text = re.sub(r"\bfive-boy\b", "five-by", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bfive-try\b", "five-by", text, flags=re.IGNORECASE)
-    # Common OCR letter confusion in technical/radio terms
-    text = re.sub(r"\bPFESS\b", "PRESS", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bPASS light\b", "PRESS light", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bMASTEP\b", "MASTER", text, flags=re.IGNORECASE)
-    # Typo from OCR
-    text = text.replace("Unindentifiable", "Unidentifiable")
-    return text
-
-
 def _strip_end_of_tape_residue(text: str) -> str:
     """Removes 'END OF TAPE' fragments that may have been merged into dialogue."""
     if not text:
@@ -450,7 +419,7 @@ def _cleanup_pages(pages: list[PageBundle], post_merge: dict | None = None) -> N
                     cleaned.append({"type": "footer", "text": text})
                 continue
             if btype == "annotation":
-                text = _apply_generic_ocr_fixes(block.get("text", "") or "")
+                text = (block.get("text", "") or "")
                 cleaned.append({"type": "annotation", "text": text} if text else block)
                 continue
 
@@ -459,7 +428,6 @@ def _cleanup_pages(pages: list[PageBundle], post_merge: dict | None = None) -> N
                 if not text:
                     continue
                 text = _apply_text_replacements(text, text_replacements)
-                text = _apply_generic_ocr_fixes(text)
                 updated = dict(block)
                 updated["text"] = text
                 cleaned.append(updated)
@@ -474,7 +442,6 @@ def _cleanup_pages(pages: list[PageBundle], post_merge: dict | None = None) -> N
 
             if text:
                 text = _apply_text_replacements(text, text_replacements)
-                text = _apply_generic_ocr_fixes(text)
                 text = _strip_end_of_tape_residue(text)
 
             if not text:

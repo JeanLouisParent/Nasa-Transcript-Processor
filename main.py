@@ -624,13 +624,14 @@ def postprocess_json(pdf_name: str):
     ts_index = GlobalTimestampIndex(index_path)
 
     # Get lexicon path from config with fallback to default
-    lexicon_path_str = lexicon_cfg.get("path", "assets/lexicon/apollo11_lexicon.json")
+    lexicon_path_str = lexicon_cfg.get("path", "resources/lexicon/apollo11_lexicon.json")
     lexicon_path = Path(lexicon_path_str)
 
     page_files = sorted(output_dir.glob("Page_*/**/*.json"))
     updated = 0
 
     # Initialize PostProcessor
+    logger.info(f"Initializing PostProcessor with {len(valid_speakers) if valid_speakers else 0} valid speakers")
     post_processor = PostProcessor(
         valid_speakers=valid_speakers,
         valid_locations=valid_locations,
@@ -720,7 +721,8 @@ def postprocess_json(pdf_name: str):
 
 @cli.command("reparse")
 @click.argument("pdf_name")
-def reparse_from_ocr(pdf_name: str):
+@click.option("-p", "--pages", help="Page range (e.g., '1-50', '10,12-14')")
+def reparse_from_ocr(pdf_name: str, pages: str):
     """Reparse pages from stored OCR text files without rerunning OCR."""
     setup_logging()
     global_cfg = load_global_config(Path("config/defaults.toml"))
@@ -737,7 +739,7 @@ def reparse_from_ocr(pdf_name: str):
     valid_locations = mission_overrides.get("valid_locations")
     lexicon_cfg = global_cfg.pipeline_defaults.get("lexicon", {})
     # Get lexicon path from config with fallback to default
-    lexicon_path_str = lexicon_cfg.get("path", "assets/lexicon/apollo11_lexicon.json")
+    lexicon_path_str = lexicon_cfg.get("path", "resources/lexicon/apollo11_lexicon.json")
     lexicon_path = Path(lexicon_path_str)
     global_mission_keywords = (
         lexicon_cfg.get("mission_keywords")
@@ -778,12 +780,24 @@ def reparse_from_ocr(pdf_name: str):
     index_path = global_cfg.state_dir / f"{pdf_path.stem}_timestamps_index.json"
     ts_index = GlobalTimestampIndex(index_path)
 
-    page_dirs = sorted(
-        output_dir.glob("Page_*"),
-        key=lambda p: int(re.search(r"(\d+)$", p.name).group(1)) if re.search(r"(\d+)$", p.name) else 0
-    )
+    # Filter pages if range provided
+    if pages:
+        # Get total pages from PDF info for bounds checking
+        info = get_pdf_info(pdf_path)
+        page_indices = parse_pages(pages, info["page_count"])
+        page_dirs = []
+        for p_idx in page_indices:
+            p_dir = output_dir / f"Page_{p_idx + 1:03d}"
+            if p_dir.exists():
+                page_dirs.append(p_dir)
+    else:
+        page_dirs = sorted(
+            output_dir.glob("Page_*"),
+            key=lambda p: int(re.search(r"(\d+)$", p.name).group(1)) if re.search(r"(\d+)$", p.name) else 0
+        )
 
     # Initialize PostProcessor
+    logger.info(f"Initializing PostProcessor with {len(valid_speakers) if valid_speakers else 0} valid speakers")
     post_processor = PostProcessor(
         valid_speakers=valid_speakers,
         valid_locations=valid_locations,
@@ -1032,7 +1046,7 @@ def process(
 
         lexicon_cfg = global_cfg.pipeline_defaults.get("lexicon", {})
         # Get lexicon path from config with fallback to default
-        lexicon_path_str = lexicon_cfg.get("path", "assets/lexicon/apollo11_lexicon.json")
+        lexicon_path_str = lexicon_cfg.get("path", "resources/lexicon/apollo11_lexicon.json")
         lexicon_path = Path(lexicon_path_str)
         global_mission_keywords = (
             lexicon_cfg.get("mission_keywords")

@@ -1,14 +1,16 @@
 """
-Post-processing pipeline for OCR blocks.
+Orchestration of the post-processing pipeline.
 """
+
 import re
-from pathlib import Path
 from typing import Any
+from pathlib import Path
 
 from src.correctors.speaker_corrector import SpeakerCorrector
 from src.correctors.text_corrector import TextCorrector
 from src.correctors.location_corrector import LocationCorrector
 from src.correctors.timestamp_corrector import TimestampCorrector
+from src.utils.station_normalization import match_station_name
 from src.ocr.parsing.cleaning import (
     split_embedded_timestamp_blocks,
     merge_duplicate_comm_timestamps,
@@ -17,7 +19,9 @@ from src.ocr.parsing.cleaning import (
     merge_inline_annotations,
     merge_fragment_annotations,
     remove_repeated_phrases,
+    normalize_parenthesized_radio_calls,
 )
+from src.ocr.parsing.utils import is_not1_footer_noise
 from src.ocr.parsing.patterns import GOSS_NET_RE
 
 class PostProcessor:
@@ -38,19 +42,6 @@ class PostProcessor:
         manual_speaker_corrections: dict[str, str] | None = None,
         lexicon_path: Path | None = None,
     ):
-        """
-        Initializes the PostProcessor with mission-specific configuration.
-
-        Args:
-            valid_speakers: Allowlist of speaker callsigns.
-            valid_locations: Allowlist of location codes.
-            mission_keywords: Terms used for speaker/location disambiguation.
-            text_replacements: Global regex patterns for OCR error correction.
-            speaker_ocr_fixes: Known OCR misreads for speakers.
-            invalid_location_annotations: Terms incorrectly parsed as locations.
-            manual_speaker_corrections: Timestamp-to-speaker mapping for hard fixes.
-            lexicon_path: Path to the JSON vocabulary for spell checking.
-        """
         self.valid_speakers = valid_speakers
         self.valid_locations = valid_locations
         self.mission_keywords = mission_keywords or []
@@ -59,26 +50,45 @@ class PostProcessor:
         self.invalid_location_annotations = invalid_location_annotations or []
         self.manual_speaker_corrections = manual_speaker_corrections or {}
         self.lexicon_path = lexicon_path
+        self.station_pattern = re.compile(r"\b([A-Z0-9 ]{3,40}?)\s*\((REV|PASS|RFV)\s*(\d+)\)\s*", re.IGNORECASE)
+
+    def _clean_text(self, text: str) -> str:
+        """Applies low-level text cleaning rules before spell-checking."""
+        if not text:
+            return ""
+            
+        # 1. Hardware/Location tag removal (e.g. (TRANQ), (COLUMBIA))
+        if self.valid_locations:
+            for loc in self.valid_locations:
+                pattern = re.compile(rf"\(?\s*{re.escape(loc)}\s*\)?", re.IGNORECASE)
+                text = pattern.sub(" ", text)
+        
+        # 2. Basic structural normalization
+        text = remove_repeated_phrases(text)
+        text = normalize_parenthesized_radio_calls(text)
+        
+        # 3. High-frequency OCR error fixes
+        # Fix common I'm/I'd confusions
+        text = re.sub(r"\bhim\b", "I'm", text, flags=re.IGNORECASE)
+        if text.lower().startswith("had "):
+            text = "I'd" + text[3:]
+        
+        # 4. Cleanup orphaned punctuation
+        if text.count("(") == 1 and text.count(")") == 0:
+            text = text.replace("(", "")
+        elif text.count(")") == 1 and text.count("(") == 0:
+            text = text.replace(")", "")
+            
+        # 5. Sentence casing
+        text = text.strip()
+        if len(text) > 10 and text[0].islower() and not text.startswith("..."):
+            text = text[0].upper() + text[1:]
+            
+        return text.strip()
 
     def process_blocks(self, blocks: list[dict[str, Any]], initial_ts: str | None = None) -> list[dict[str, Any]]:
         """
         Executes the full post-processing pipeline on a list of blocks.
-
-        Stages:
-        1. Structural cleaning (merging/splitting).
-        2. Internal text cleaning.
-        3. Chronological timestamp correction.
-        4. Manual speaker overrides.
-        5. Fuzzy speaker identification.
-        6. Location normalization and tag removal.
-        7. Final filtering and lexicon-based spell correction.
-
-        Args:
-            blocks: Raw communication blocks from the parser.
-            initial_ts: The last known valid timestamp from the previous page.
-
-        Returns:
-            A cleaned and corrected list of blocks.
         """
         # 1. Structural cleaning
         blocks = split_embedded_timestamp_blocks(blocks)
@@ -88,10 +98,10 @@ class PostProcessor:
         blocks = merge_inline_annotations(blocks, self.invalid_location_annotations)
         blocks = merge_fragment_annotations(blocks)
 
-        # 2. Text cleaning within blocks
+        # 2. Internal text cleaning
         for block in blocks:
-            if block.get("type") == "comm" and block.get("text"):
-                block["text"] = remove_repeated_phrases(block["text"])
+            if block.get("type") in ("comm", "annotation", "continuation") and block.get("text"):
+                block["text"] = self._clean_text(block["text"])
 
         # 3. Timestamp correction
         ts_corrector = TimestampCorrector(initial_ts)
@@ -107,15 +117,31 @@ class PostProcessor:
 
         # 5. Speaker correction
         if self.valid_speakers:
+            # Pre-pass: Split corrupted speakers (e.g. "CC Apollo")
+            valid_set = {s.upper() for s in self.valid_speakers}
+            for block in blocks:
+                if block.get("type") != "comm":
+                    continue
+                raw_spk = block.get("speaker", "").strip()
+                if not raw_spk:
+                    continue
+                if " " in raw_spk:
+                    parts = raw_spk.split(maxsplit=1)
+                    first = parts[0].upper()
+                    if first in valid_set or (first in self.speaker_ocr_fixes and self.speaker_ocr_fixes[first] in valid_set):
+                        block["speaker"] = first
+                        remaining = parts[1]
+                        old_text = block.get("text", "")
+                        block["text"] = (remaining + " " + old_text).strip()
+            
             corrector = SpeakerCorrector(self.valid_speakers, self.speaker_ocr_fixes)
             blocks = corrector.process_blocks(blocks, self.mission_keywords)
             
-            # Remove redundant speaker prefixes from text (e.g. "CDR Roger" -> "Roger")
+            # Remove redundant speaker prefixes from text
             for block in blocks:
                 if block.get("type") == "comm" and block.get("speaker") and block.get("text"):
                     spk = block["speaker"].upper()
                     txt = block["text"]
-                    # Check for "SPEAKER " or "SPEAKER:" at start
                     if txt.upper().startswith(f"{spk} "):
                         block["text"] = txt[len(spk)+1:].lstrip()
                     elif txt.upper().startswith(f"{spk}:"):
@@ -126,16 +152,53 @@ class PostProcessor:
             loc_corrector = LocationCorrector(self.valid_locations, self.invalid_location_annotations)
             blocks = loc_corrector.process_blocks(blocks)
 
-            # Remove orphaned location tags from text
-            for block in blocks:
-                if block.get("type") == "comm" and block.get("text"):
-                    text = block["text"]
-                    for loc in self.valid_locations:
-                         text = re.sub(rf"\(['\"\s]*{re.escape(loc)}['\"\s.]*\)\s*", " ", text, flags=re.IGNORECASE)
-                    block["text"] = text.strip()
-
         # 7. Final filtering and text correction
-        # Reclassify problematic blocks
+        if self.lexicon_path and self.lexicon_path.exists():
+            text_corrector = TextCorrector(self.lexicon_path, self.text_replacements, self.mission_keywords)
+            blocks = text_corrector.process_blocks(blocks)
+
+        # 8. Station Annotation Extraction
+        keyword_candidates = [kw.upper() for kw in (self.mission_keywords or [])]
+        final_blocks = []
+        for block in blocks:
+            text = block.get("text", "")
+            if not text:
+                final_blocks.append(block)
+                continue
+            annotations = []
+            current_text = text
+            while True:
+                match = self.station_pattern.search(current_text)
+                if not match:
+                    break
+                station_raw = match.group(1).strip().upper()
+                marker = match.group(2).upper().replace("RFV", "REV")
+                number = match.group(3)
+                matched_station = match_station_name(station_raw, keyword_candidates)
+                if self.mission_keywords and not matched_station:
+                    break
+                station_label = matched_station or station_raw
+                annotations.append(f"{station_label} ({marker} {number})")
+                current_text = (current_text[:match.start()] + current_text[match.end():]).strip()
+            if annotations:
+                if not current_text and block.get("type") == "comm" and not block.get("timestamp"):
+                    block["type"] = "annotation"
+                    block["text"] = annotations[0]
+                    block.pop("speaker", None)
+                    block.pop("location", None)
+                    final_blocks.append(block)
+                    for ann in annotations[1:]:
+                        final_blocks.append({"type": "annotation", "text": ann})
+                else:
+                    block["text"] = current_text
+                    final_blocks.append(block)
+                    for ann in annotations:
+                        final_blocks.append({"type": "annotation", "text": ann})
+            else:
+                final_blocks.append(block)
+        blocks = [b for b in final_blocks if b.get("text")]
+
+        # 9. Block Reclassification
         for block in blocks:
             if block.get("type") == "comm":
                 text = block.get("text", "").strip()
@@ -147,31 +210,45 @@ class PostProcessor:
                     block["type"] = "annotation"
                     block.pop("speaker", None)
                     block.pop("location", None)
+                elif not block.get("speaker"):
+                    block["speaker"] = "SC"
 
-        # Drop empty comm blocks
+        # 10. Filter noise
         blocks = [
-            b for b in blocks
-            if not (b.get("type") == "comm" and
-                    not b.get("speaker") and
-                    (len(b.get("text", "").strip()) < 10 or
-                     b.get("text", "").strip() in (".", ". Over.", "Over.")))
+            b for b in blocks 
+            if not (b.get("type") == "comm" and b.get("speaker") == "SC" and len(b.get("text", "").strip()) < 3 and not any(c.isalnum() for c in b.get("text", "")))
+        ]
+        blocks = [
+            b for b in blocks 
+            if not (b.get("text") and (GOSS_NET_RE.match(str(b.get("text"))) or is_not1_footer_noise(str(b.get("text")))))
         ]
 
-        # Lexicon-based text correction
-        if self.lexicon_path and self.lexicon_path.exists():
-            text_corrector = TextCorrector(self.lexicon_path, self.text_replacements, self.mission_keywords)
-            blocks = text_corrector.process_blocks(blocks)
-            # Filter GOSS NET noise
-            blocks = [b for b in blocks if not (b.get("text") and GOSS_NET_RE.match(str(b.get("text"))))]
-
-        return blocks
+        # 11. Merge consecutive same-speaker blocks
+        if not blocks:
+            return blocks
+        merged = []
+        for i, block in enumerate(blocks):
+            if (
+                merged
+                and block.get("type") == "comm"
+                and merged[-1].get("type") == "comm"
+                and block.get("speaker") == merged[-1].get("speaker")
+                and block.get("text")
+                and i > 0
+                and not block.get("continuation_from_prev")
+            ):
+                prev = merged[-1]
+                text = block["text"]
+                prev_text = prev.get("text", "").strip()
+                is_textual_cont = text[0].islower() or text.startswith("...") or text[0] in ",;.)"
+                is_structural_cont = prev_text and prev_text[-1] not in ".?!"
+                if is_textual_cont or is_structural_cont:
+                    prev["text"] = (prev_text + " " + text).strip()
+                    if not prev.get("timestamp_correction") and block.get("timestamp_correction"):
+                        prev["timestamp_correction"] = block.get("timestamp_correction")
+                    continue
+            merged.append(block)
+        return merged
 
     def prune_empty_blocks(self, blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """
-        Remove comm blocks that have no text content (even if they have a speaker).
-        Call this after all OCR passes and merges are complete.
-        """
-        return [
-            b for b in blocks
-            if not (b.get("type") == "comm" and not b.get("text", "").strip())
-        ]
+        return [b for b in blocks if b.get("text", "").strip()]

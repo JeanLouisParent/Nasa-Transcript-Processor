@@ -417,6 +417,21 @@ class TextCorrector:
             if not (allow_known_short and len(word) < 3):
                 return None
 
+        # 2b. Known contraction?
+        known_contractions = {
+            "i'm", "i'll", "i've", "i'd",
+            "you're", "you'll", "you've", "you'd",
+            "he's", "he'll", "he'd",
+            "she's", "she'll", "she'd",
+            "it's", "it'll",
+            "we're", "we'll", "we've", "we'd",
+            "they're", "they'll", "they've", "they'd",
+            "that's", "there's", "here's",
+            "don't", "can't", "won't", "shouldn't", "wouldn't", "couldn't", "wasn't", "weren't", "isn't", "aren't", "haven't", "hasn't", "hadn't"
+        }
+        if word_lower in known_contractions:
+            return None
+
         # 3. Short word noise?
         if len(word) < 3 and not allow_short:
             return None
@@ -468,6 +483,46 @@ class TextCorrector:
 
         return best_candidate
 
+    def _apply_generic_ocr_fixes(self, text: str) -> str:
+        """
+        Applies mission-agnostic OCR error corrections (e.g. '0MNI' -> 'OMNI').
+        
+        Args:
+            text: Dialogue string.
+            
+        Returns:
+            Text with common character confusion fixed.
+        """
+        if not text:
+            return text
+            
+        # Common OCR swaps: 0 -> O inside specific words
+        text = re.sub(r"\b0MNI\b", "OMNI", text)
+        text = re.sub(r"\bPYR0\b", "PYRO", text)
+        text = re.sub(r"\bC0MM\b", "COMM", text)
+        text = re.sub(r"\b0ver\b", "Over", text, flags=re.IGNORECASE)
+        text = re.sub(r"\b0ut\b", "Out", text, flags=re.IGNORECASE)
+        
+        # Digit/letter confusion: ll, I1, il → 11
+        text = re.sub(r"\bll\b", "11", text)
+        text = re.sub(r"\bI1\b", "11", text)
+        text = re.sub(r"\bil\b", "11", text)
+        # Recover apostrophe after digit fix: word'11 → word'll
+        text = re.sub(r"(\w+)'11\b", r"\1'll", text)
+        
+        # Common OCR vowel confusion in compound words
+        text = re.sub(r"\bfive-boy\b", "five-by", text, flags=re.IGNORECASE)
+        text = re.sub(r"\bfive-try\b", "five-by", text, flags=re.IGNORECASE)
+        # Common OCR letter confusion in technical/radio terms
+        text = re.sub(r"\bPFESS\b", "PRESS", text, flags=re.IGNORECASE)
+        text = re.sub(r"\bPASS\s+light\b", "PRESS light", text, flags=re.IGNORECASE)
+        text = re.sub(r"\bMASTEP\b", "MASTER", text, flags=re.IGNORECASE)
+        
+        # Typo from OCR
+        text = text.replace("Unindentifiable", "Unidentifiable")
+        
+        return text
+
     def correct_text(self, text: str) -> str:
         """
         Full orchestration of the text correction pipeline.
@@ -481,8 +536,9 @@ class TextCorrector:
         Returns:
             Corrected dialogue string.
         """
-        # 1. Cleaning
+        # 1. Initial cleaning and generic fixes
         text = self.clean_noise(text)
+        text = self._apply_generic_ocr_fixes(text)
 
         # 2. Tokenize while keeping delimiters to reconstruct string
         # Split by whitespace but keep delimiters in the list

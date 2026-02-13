@@ -165,7 +165,7 @@ class TextCorrector:
         """
         Applies corrections to technical and telemetry-style dialogue segments.
 
-        Fixes AGC modes, coordinates, mission-specific station callouts, 
+        Fixes AGC modes, coordinates, mission-specific station callouts,
         axes (X/Y/Z), and hardware statuses.
 
         Args:
@@ -177,6 +177,16 @@ class TextCorrector:
         if not text:
             return text
 
+        text = self._normalize_agc_modes(text)
+        text = self._normalize_coordinates(text)
+        text = self._fix_common_ocr_confusions(text)
+        text = self._normalize_station_annotations(text)
+        text = self._normalize_apollo_patterns(text)
+
+        return text
+
+    def _normalize_agc_modes(self, text: str) -> str:
+        """Normalizes AGC program mode tokens (P00, P63, P64, etc.) in context."""
         def mode_repl(match: re.Match) -> str:
             tok = match.group(1)
             canon = self._canonicalize_mode_token(tok)
@@ -186,7 +196,7 @@ class TextCorrector:
             canon = self._canonicalize_mode_token(token)
             return canon if canon else token
 
-        # Program mode tokens near ACCEPT/DATA contexts.
+        # Program mode tokens near ACCEPT/DATA contexts
         text = re.sub(
             r"\b(P[A-Z0-9]{1,4})\b(?=\s+(?:AND|IN)\s+(?:ACCEPT|DATA)\b)",
             mode_repl,
@@ -212,26 +222,34 @@ class TextCorrector:
             flags=re.IGNORECASE,
         )
 
-        # Navigation-like numeric groups: optional "(" before a 3-part tuple
-        # where first field is often zero-dropped by OCR. Remove stray "(".
+        return text
+
+    def _normalize_coordinates(self, text: str) -> str:
+        """Normalizes navigation coordinate tuples (e.g., zero-pads first field)."""
         def coord_repl(match: re.Match) -> str:
             a, b, c = match.group(1), match.group(2), match.group(3)
             if len(a) < 3:
                 a = a.zfill(3)
             return f"{a} {b} {c}"
 
-        text = re.sub(r"\((\d{1,3})\s+(\d{2})\s+(\d{4})(?=[,\s])", coord_repl, text)
+        return re.sub(r"\((\d{1,3})\s+(\d{2})\s+(\d{4})(?=[,\s])", coord_repl, text)
 
-        # DELTA-P readback marker is commonly OCR'd as DELTA-UP/DELTA-CUP.
+    def _fix_common_ocr_confusions(self, text: str) -> str:
+        """Fixes common OCR character substitutions in technical terms."""
+        # DELTA-P readback marker (OCR'd as DELTA-UP/DELTA-CUP)
         text = re.sub(r"\bDELTA-(?:C?UP)\b", "DELTA-P", text, flags=re.IGNORECASE)
-        # LM/CM is sometimes OCR'd as IM/CM in this context.
-        text = re.sub(r"\bIM/CM\b", "LM/CM", text, flags=re.IGNORECASE)
 
-        # H/S confusion at word start before hyphenated technical terms (S-band, S-IV, S-IVB, etc.)
+        # LM/CM confusion (IM/CM and standalone IM)
+        text = re.sub(r"\bIM/CM\b", "LM/CM", text, flags=re.IGNORECASE)
+        text = re.sub(r"\bIM\b", "LM", text, flags=re.IGNORECASE)
+
+        # H/S confusion before hyphenated terms (S-band, S-IV, etc.)
         text = re.sub(r"\b(?:His|Is|H)-(?=band|IV|IVB|VC|TP)\b", "S-", text, flags=re.IGNORECASE)
 
-        # Normalize mission station annotations using configured mission keywords.
-        # Example OCR: "AND GRAHAM ISLANDS (REV 1)" -> "GRAND BAHAMA ISLANDS (REV 1)".
+        return text
+
+    def _normalize_station_annotations(self, text: str) -> str:
+        """Normalizes mission station names using configured keywords."""
         def station_repl(match: re.Match) -> str:
             raw_station = match.group(1).strip()
             marker = match.group(2).upper()
@@ -241,15 +259,16 @@ class TextCorrector:
                 return match.group(0)
             return f"{matched} ({marker} {number})"
 
-        text = re.sub(
+        return re.sub(
             r"\b([A-Z][A-Z0-9 ]{2,40}?)\s*\((REV|PASS)\s*(\d+)\)",
             station_repl,
             text,
             flags=re.IGNORECASE,
         )
 
-        # Apollo-specific domain patterns
-        # Direction axes: "minus Two" or "minus-Two" → "minus-X", etc.
+    def _normalize_apollo_patterns(self, text: str) -> str:
+        """Normalizes Apollo mission-specific patterns (axes, quadrants, procedures)."""
+        # Direction axes: "minus Two" → "minus-X"
         text = re.sub(r'\b(minus|plus)[-\s]+Two\b', r'\1-X', text, flags=re.IGNORECASE)
         text = re.sub(r'\b(minus|plus)[-\s]+(one|l)\b', r'\1-Y', text, flags=re.IGNORECASE)
         text = re.sub(r'\b(minus|plus)[-\s]+Zero\b', r'\1-Z', text, flags=re.IGNORECASE)
@@ -257,19 +276,15 @@ class TextCorrector:
         # Quadrant indicators: "equal Bravo" → "quad Bravo"
         text = re.sub(r'\bequal\s+([A-Z][a-z]*)\b', r'quad \1', text, flags=re.IGNORECASE)
 
-        # Spurious single letters in phrases: "a little e weak" → "a little weak"
+        # Spurious single letters: "a little e weak" → "a little weak"
         text = re.sub(r'\blittle\s+[a-z]\s+weak\b', 'little weak', text, flags=re.IGNORECASE)
 
-        # Context-specific OCR letter confusion
-        # "tie" → "the" in specific contexts (background, foreground, etc.)
+        # Context-specific OCR confusions
         text = re.sub(r'\b(in|from)\s+tie\s+(background|foreground)\b', r'\1 the \2', text, flags=re.IGNORECASE)
-
-        # "or" → "on" in question/reference contexts
         text = re.sub(r'\bquestion\s+or\s+(this|that|the)\b', r'question on \1', text, flags=re.IGNORECASE)
         text = re.sub(r'\breference\s+or\s+(this|that|the)\b', r'reference on \1', text, flags=re.IGNORECASE)
 
-        # Radio operations: PRESS light (not PASS light)
-        # Only apply when context suggests it's a button/light
+        # Radio operations: PRESS light (context-aware)
         if re.search(r'\b(turn|hit|depress|press|activate)\b', text, re.IGNORECASE):
             text = re.sub(r'\bPASS\s+light\b', 'PRESS light', text, flags=re.IGNORECASE)
 
@@ -301,8 +316,8 @@ class TextCorrector:
         # Normalize truncated decimals only in numeric contexts (e.g., "minus 4." -> "minus 4.0")
         text = re.sub(r"\b(plus|minus)\s+(\d+)\.(?=\s|$|[)\],;:])", r"\1 \2.0", text, flags=re.IGNORECASE)
 
-        # Remove stray colons inside words (e.g., "Apollo:o" -> "Apolloo")
-        text = re.sub(r"(?<=[A-Za-z]):(?=[A-Za-z])", "", text)
+        # Remove stray colons inside words (e.g., "Apollo:o" -> "Apolloo", "Apollo:0" -> "Apollo")
+        text = re.sub(r"(?<=[A-Za-z]):(?=[A-Za-z0-9])", "", text)
 
         # Fix single-letter tokens with parens before common directives (e.g., "G() at" -> "GO at")
         text = re.sub(r"\b([A-Z])\(\)\s+(at|for|from)\b", r"\1O \2", text)
@@ -394,30 +409,62 @@ class TextCorrector:
         Returns:
             Suggested corrected string or None if no high-confidence match is found.
         """
+        # Handle embedded apostrophe OCR errors
+        corrected_apos = self._handle_embedded_apostrophe(word, prev_word, allow_short, allow_known_short)
+        if corrected_apos:
+            return corrected_apos
+
         word_lower = word.lower()
 
-        # 1. Detect embedded apostrophe (OCR error)
+        # Skip known words/contractions
+        if self._is_known_word_or_contraction(word_lower, len(word), allow_known_short):
+            return None
+
+        # Skip short noise words
+        if len(word) < 3 and not allow_short:
+            return None
+
+        # Find and rank candidates
+        candidates = self._get_candidates(word_lower)
+        best_candidate = self._rank_candidates(word, word_lower, candidates, prev_word, allow_known_short)
+
+        if not best_candidate:
+            return None
+
+        # Restore original case
+        return self._restore_case(word, best_candidate)
+
+    def _handle_embedded_apostrophe(
+        self,
+        word: str,
+        prev_word: str | None,
+        allow_short: bool,
+        allow_known_short: bool,
+    ) -> str | None:
+        """Detects and corrects words with embedded apostrophes (OCR error)."""
         is_embedded, word_without_apos = self.detect_embedded_apostrophe(word)
-        if is_embedded:
-            # Try to correct the apostrophe-free version
-            corrected = self.suggest_correction(word_without_apos, prev_word, allow_short, allow_known_short)
-            if corrected:
-                return corrected
-            # If that didn't work, check if apostrophe-free version is in vocab
-            if word_without_apos.lower() in self.vocab:
-                # Restore case
-                if word.istitle():
-                    return word_without_apos.title()
-                elif word.isupper():
-                    return word_without_apos.upper()
-                return word_without_apos
+        if not is_embedded:
+            return None
 
-        # 2. Known word?
+        # Try to correct the apostrophe-free version
+        corrected = self.suggest_correction(word_without_apos, prev_word, allow_short, allow_known_short)
+        if corrected:
+            return corrected
+
+        # Check if apostrophe-free version is in vocab
+        if word_without_apos.lower() in self.vocab:
+            return self._restore_case(word, word_without_apos)
+
+        return None
+
+    def _is_known_word_or_contraction(self, word_lower: str, word_len: int, allow_known_short: bool) -> bool:
+        """Checks if word is already in vocabulary or is a known contraction."""
+        # Known word?
         if word_lower in self.vocab or word_lower.isdigit():
-            if not (allow_known_short and len(word) < 3):
-                return None
+            if not (allow_known_short and word_len < 3):
+                return True
 
-        # 2b. Known contraction?
+        # Known contraction?
         known_contractions = {
             "i'm", "i'll", "i've", "i'd",
             "you're", "you'll", "you've", "you'd",
@@ -427,61 +474,77 @@ class TextCorrector:
             "we're", "we'll", "we've", "we'd",
             "they're", "they'll", "they've", "they'd",
             "that's", "there's", "here's",
-            "don't", "can't", "won't", "shouldn't", "wouldn't", "couldn't", "wasn't", "weren't", "isn't", "aren't", "haven't", "hasn't", "hadn't"
+            "don't", "can't", "won't", "shouldn't", "wouldn't", "couldn't",
+            "wasn't", "weren't", "isn't", "aren't", "haven't", "hasn't", "hadn't"
         }
-        if word_lower in known_contractions:
-            return None
+        return word_lower in known_contractions
 
-        # 3. Short word noise?
-        if len(word) < 3 and not allow_short:
-            return None
-
-        # 4. Get candidates from lexicon
-        # Use a lower cutoff for short words to ensure common words aren't missed
+    def _get_candidates(self, word_lower: str) -> list[str]:
+        """Retrieves fuzzy-matched candidates from lexicon."""
+        # Use lower cutoff for short words
         cutoff = 0.5 if len(word_lower) <= 3 else 0.6
-        candidates = difflib.get_close_matches(word_lower, self.vocab, n=20, cutoff=cutoff)
+        return difflib.get_close_matches(word_lower, self.vocab, n=20, cutoff=cutoff)
 
-        # 5. Rank candidates
-        # Score = (Similarity Ratio * 10000) + Frequency + Bigram Bonus
+    def _rank_candidates(
+        self,
+        word: str,
+        word_lower: str,
+        candidates: list[str],
+        prev_word: str | None,
+        allow_known_short: bool,
+    ) -> str | None:
+        """Ranks candidates by similarity, frequency, and contextual bigram match."""
         best_candidate = None
         best_score = -1
 
         for cand in candidates:
+            # Skip if trying to match known short word
             if allow_known_short and len(word_lower) < 3 and cand == word_lower:
                 continue
+
             # Avoid shortening very short words
             if len(word_lower) <= 3 and len(cand) < len(word_lower):
                 continue
 
-            # Calculate similarity ratio
-            ratio = difflib.SequenceMatcher(None, word_lower, cand).ratio()
-
-            # Weighted score: ratio is dominant.
-            # Add a penalty for length difference to favor MASTER over WASTE for MASTEP
-            len_diff = abs(len(word_lower) - len(cand))
-            score = (ratio * 10000) - (len_diff * 500) + self.word_freq.get(cand, 0)
-
-            # Context bonus (amplified for better disambiguation)
-            if prev_word:
-                bigram = f"{prev_word.lower()} {cand}"
-                if bigram in self.bigram_freq:
-                    # Context match adds significant boost for context-aware correction
-                    score += self.bigram_freq[bigram] * 100
+            # Calculate score: similarity + frequency + context
+            score = self._calculate_candidate_score(word_lower, cand, prev_word)
 
             if score > best_score:
                 best_score = score
                 best_candidate = cand
 
-        if not best_candidate:
-            return None
-
-        # Restore case
-        if word.istitle():
-            return best_candidate.title()
-        elif word.isupper():
-            return best_candidate.upper()
-
         return best_candidate
+
+    def _calculate_candidate_score(self, word_lower: str, candidate: str, prev_word: str | None) -> float:
+        """
+        Calculates ranking score for a candidate.
+
+        Score = (Similarity * 10000) - (Length_Diff * 500) + Frequency + Bigram_Bonus
+        """
+        # Similarity ratio (dominant factor)
+        ratio = difflib.SequenceMatcher(None, word_lower, candidate).ratio()
+
+        # Length difference penalty (favors closer length matches)
+        len_diff = abs(len(word_lower) - len(candidate))
+
+        # Base score
+        score = (ratio * 10000) - (len_diff * 500) + self.word_freq.get(candidate, 0)
+
+        # Context bonus (bigram match)
+        if prev_word:
+            bigram = f"{prev_word.lower()} {candidate}"
+            if bigram in self.bigram_freq:
+                score += self.bigram_freq[bigram] * 100
+
+        return score
+
+    def _restore_case(self, original: str, corrected: str) -> str:
+        """Restores the original word's case to the corrected word."""
+        if original.istitle():
+            return corrected.title()
+        elif original.isupper():
+            return corrected.upper()
+        return corrected
 
     def _apply_generic_ocr_fixes(self, text: str) -> str:
         """
@@ -502,14 +565,7 @@ class TextCorrector:
         text = re.sub(r"\bC0MM\b", "COMM", text)
         text = re.sub(r"\b0ver\b", "Over", text, flags=re.IGNORECASE)
         text = re.sub(r"\b0ut\b", "Out", text, flags=re.IGNORECASE)
-        
-        # Digit/letter confusion: ll, I1, il → 11
-        text = re.sub(r"\bll\b", "11", text)
-        text = re.sub(r"\bI1\b", "11", text)
-        text = re.sub(r"\bil\b", "11", text)
-        # Recover apostrophe after digit fix: word'11 → word'll
-        text = re.sub(r"(\w+)'11\b", r"\1'll", text)
-        
+
         # Common OCR vowel confusion in compound words
         text = re.sub(r"\bfive-boy\b", "five-by", text, flags=re.IGNORECASE)
         text = re.sub(r"\bfive-try\b", "five-by", text, flags=re.IGNORECASE)

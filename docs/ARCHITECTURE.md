@@ -196,6 +196,8 @@ flowchart TB
     subgraph Utils ["Utils (src/utils/)"]
         OUTG[output_generator.py<br/><small>File I/O</small>]
         MERG[merge_export.py<br/><small>Global export</small>]
+        MHELP[merge_helpers.py<br/><small>Timestamp/text utils</small>]
+        BHELP[block_helpers.py<br/><small>Block filtering</small>]
         CONS[console.py<br/><small>Rich UI</small>]
     end
 
@@ -232,6 +234,10 @@ flowchart TB
 | `src/correctors/` | Specialized logic for timestamps, speakers, locations, and spell-checking. |
 | `src/utils/output_generator.py` | Standardized directory and asset management. |
 | `src/utils/merge_export.py` | Global aggregation and rendering (JSON, Text, MD). |
+| `src/utils/merge_helpers.py` | Reusable utilities for timestamp/text manipulation. |
+| `src/utils/block_helpers.py` | Filtering and iteration helpers for block collections. |
+| `src/utils/console.py` | Rich terminal UI for progress tracking and metrics. |
+| `src/constants.py` | Global constants (speaker sets, thresholds, technical limits). |
 
 ---
 

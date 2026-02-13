@@ -54,7 +54,7 @@ class GlobalTimestampIndex:
                 return self.data[p][-1] # Last timestamp of that page
         return None
 
-    def save(self):
+    def save(self) -> None:
         """Persists the current index state to disk as JSON."""
         if not self.index_path:
             return

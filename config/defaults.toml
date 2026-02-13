@@ -7,8 +7,8 @@ state_dir = "state"
 
 # OCR Settings
 ocr_url = "http://192.168.1.119:1234"
-ocr_model = "qwen/qwen3-vl-4b"  # Vision model to use
-ocr_prompt = "plain" # "plain" or "column"
+ocr_model = "qwen/qwen3-vl-4b"        # Vision model to use
+ocr_prompt = "plain"                  # "plain" or "column"
 ocr_timeout = 120
 ocr_max_tokens = 4096
 ocr_text_column_pass = true
@@ -23,27 +23,94 @@ timing = true
 
 # Image Enhancement
 clahe_clip_limit = 2.0
+clahe_grid_size = 8
 bilateral_d = 9
+bilateral_sigma_color = 75.0
+bilateral_sigma_space = 75.0
 unsharp_amount = 1.5
+unsharp_sigma = 1.0
 deskew_angle_threshold = 0.5
+deskew_max_angle = 10.0
+
+# Normalization settings (Letter size at 300 DPI)
+target_width = 2550
+target_height = 3300
+margin_px = 75
+output_format = "png"
 
 # Layout Detection
 col1_end = 0.15     # Timestamp column end ratio
 col2_end = 0.30     # Speaker column end ratio
 header_ratio = 0.10 # Header zone ratio
+min_block_area = 1000
+max_block_area_ratio = 0.9
+line_kernel_width = 50
+line_kernel_height = 1
+block_kernel_width = 5
+block_kernel_height = 10
+
+# Debug settings
+debug = false
 
 [lexicon]
+path = "resources/lexicon/apollo11_lexicon.json"
+# Mission keywords: tracking stations, ships, aircraft, and technical terms
+# These are common across Apollo missions and used for OCR correction
 mission_keywords = [
-    "CARNARVON", "TANANARIVE", "GUAM", "MADRID", "ASCENSION",
-    "BERMUDA", "CANARY", "HONOLULU", "GOLDSTONE", "MILA",
-    "ARIA",  # Apollo Range Instrumented Aircraft (tracking aircraft)
-    "TEXAS",  # USS Texas (tracking ship)
-    "TEI", "TLI", "LOI", "COI", "EVA", "LM", "CSM", "CMC", "LGC", "DSKY",
-    "GRAND BAHAMA ISLANDS", "GRAND BAHAMA ISLAND", "GUAYMAS", "VANGUARD", "HONEYSUCKLE",
+    # Tracking stations (alphabetical)
+    "ANTIGUA",
+    "ASCENSION",
+    "BERMUDA",
+    "CANARY",
+    "CARNARVON",
+    "GOLDSTONE",
+    "GUAM",
+    "GUAYMAS",
+    "HAWAII",
+    "HONEYSUCKLE",
+    "HONOLULU",
+    "HUNTSVILLE",
+    "MADRID",
+    "MERRITT ISLAND",
+    "MILA",
+    "REDSTONE",
+    "TANANARIVE",
+    # Ships and aircraft
+    "ARIA",                 # Apollo Range Instrumented Aircraft
+    "TEXAS",                # USS Texas (tracking ship)
+    "VANGUARD",             # USNS Vanguard (tracking ship)
+    # Networks
+    "MSFN",                 # Manned Space Flight Network
+    # Mission phases and technical acronyms
+    "TEI",                  # Trans-Earth Injection
+    "TLI",                  # Trans-Lunar Injection
+    "LOI",                  # Lunar Orbit Insertion
+    "COI",                  # Contingency Orbit Insertion
+    "EVA",                  # Extra-Vehicular Activity
+    # Spacecraft systems
+    "LM",                   # Lunar Module
+    "CSM",                  # Command/Service Module
+    "CMC",                  # Command Module Computer
+    "LGC",                  # Lunar Module Guidance Computer
+    "DSKY",                 # Display and Keyboard
+    # Ground stations (variants)
+    "GRAND BAHAMA ISLANDS",
+    "GRAND BAHAMA ISLAND",
     # Technical terms with hyphens (preserve exact format for OCR correction)
-    "S-IVB", "S-IV", "AIR-TO-GROUND", "NO-GO",
-    "DELTA-P", "DELTA-V", "DELTA-VC", "DELTA-H", "DELTA-VZ", "DELTA-VT", "DELTA-TIG", "DELTA-R", "DELTA-VX",
-    "LOI-2"
+    "S-IVB",
+    "S-IV",
+    "AIR-TO-GROUND",
+    "NO-GO",
+    "DELTA-P",
+    "DELTA-V",
+    "DELTA-VC",
+    "DELTA-H",
+    "DELTA-VZ",
+    "DELTA-VT",
+    "DELTA-TIG",
+    "DELTA-R",
+    "DELTA-VX",
+    "LOI-2",
 ]
 
 [parser]
@@ -60,7 +127,7 @@ transition_keywords = [
     "LOSS OF SIGNAL",
     "AOS",
     "LOS",
-    "SILENCE"
+    "SILENCE",
 ]
 
 # Keyword indicating end of tape
@@ -74,6 +141,14 @@ end_of_tape_keyword = "END OF TAPE"
 "(?i)air[-\\s]?to[-\\s]?ground voice transposition" = "AIR-TO-GROUND VOICE TRANSCRIPTION"
 "(?i)\\(\\s*go(?:ss|s|st)\\s*net\\s*1\\s*\\)" = "(GOSS NET 1)"
 "\\bwc've\\b" = "we've"
+# Common tracking station name OCR errors
+"GRAINED BEAM" = "GRAND BAHAMA"
+"Gunymas" = "Guaymas"
+# Zero-padding for single digits (O→0 confusion)
+"\\bO([1-9])\\b" = "0\\1"
+# Contraction OCR errors (we've → twelve, I'd → R'id)
+"\\btwelve\\s+(been|had|done|come|got|seen)\\b" = "we've \\1"
+"^[Rr]'?id\\b" = "I'd"
 
 [correctors]
 # Configuration for correction modules
@@ -90,7 +165,7 @@ end_of_tape_keyword = "END OF TAPE"
 "IMF" = "LMP"
 "IMP" = "LMP"
 "LMF" = "LMP"
-"LIF" = "LMP"
+"LIF" = "LMP"         # L-I-F OCR confusion (edit distance 2)
 "LIP" = "LMP"
 "LML" = "LMP"
 "LMI" = "LMP"
@@ -111,9 +186,6 @@ end_of_tape_keyword = "END OF TAPE"
 "COMM" = "CC"
 "HOUSTON" = "CC"
 "HIM" = "LMP"
-"here?" = ""
-"DSKY?" = ""
-"08" = ""
 
 # Invalid annotations that should be filtered out from location field
 [correctors.invalid_location_annotations]
@@ -124,5 +196,5 @@ annotations = [
     "GARBLE",
     "GARBLED",
     "PAUSE",
-    "PAUSED"
+    "PAUSED",
 ]

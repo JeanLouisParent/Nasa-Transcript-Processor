@@ -23,13 +23,20 @@ def load_global_config(config_path: Path) -> GlobalConfig:
 
     Returns:
         A validated GlobalConfig object.
+
+    Raises:
+        FileNotFoundError: If the config file does not exist.
+        ValueError: If the config file is invalid or missing required fields.
     """
     if not config_path.exists():
-        return GlobalConfig()
+        raise FileNotFoundError(
+            f"Configuration file not found: {config_path}\n"
+            f"defaults.toml is required - all configuration values must be in TOML files."
+        )
 
     data = tomllib.loads(config_path.read_text(encoding="utf-8"))
 
-    # Validation happens here
+    # Validation happens here (Pydantic will raise if required fields are missing)
     return GlobalConfig(**data)
 
 

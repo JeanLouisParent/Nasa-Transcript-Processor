@@ -246,7 +246,7 @@ class TranscriptParser:
             break
         return " ".join(speaker_tokens), tokens
 
-    def flush_pending(self):
+    def flush_pending(self) -> None:
         """
         Finalizes the currently accumulated communication data into a row object.
         """
@@ -312,47 +312,102 @@ class TranscriptParser:
     def _process_line(self, idx: int, entry: dict, all_lines: list[dict]):
         """
         Core logic for processing a single OCR line and updating parser state.
+
+        Delegates to specialized handlers for different line types.
         """
         line = entry["text"]
         forced_type = entry["forced"]
         upper = line.upper()
         has_lower = any(c.islower() for c in line)
-        location_only = LOCATION_PAREN_RE.match(line)
-        is_header_only = (
-            HEADER_PAGE_ONLY_RE.match(line)
-            or HEADER_TAPE_ONLY_RE.match(line)
-            or HEADER_TAPE_PAGE_ONLY_RE.match(line)
-        )
-
         has_timestamp = (TIMESTAMP_PREFIX_RE.match(line) or TIMESTAMP_STRICT_RE.match(line)) and not self.is_technical_data_not_timestamp(line)
 
+        # Adjust forced type based on context
+        forced_type = self._adjust_forced_type(forced_type, line, upper, has_lower, has_timestamp, idx)
+
+        # Early exit for header-only lines
+        if self._is_header_only(line) and not has_timestamp:
+            return
+
+        # Handle location-only lines
+        if self._handle_location_only(line):
+            return
+
+        # Handle standalone speaker lines
+        if self._handle_standalone_speaker(line):
+            return
+
+        # Handle END OF TAPE markers
+        if forced_type is None and fuzzy_find(line, END_OF_TAPE_KEYWORD):
+            self._append_meta_row(line)
+            self.prev_comm_like = False
+            return
+
+        # Handle forced metadata types (header, footer, annotation, meta)
+        if forced_type in ("header", "footer", "annotation", "meta"):
+            self._handle_metadata_line(forced_type, line, upper, has_lower)
+            return
+
+        if forced_type == "comm":
+            self.pending_force_comm = True
+            self.saw_comm_or_ts = True
+
+        # Handle standalone timestamp
+        if self._handle_standalone_timestamp(line):
+            return
+
+        # Handle timestamp with prefix (e.g., "00 01 23 45 CC Roger")
+        if self._handle_prefix_timestamp(line):
+            return
+
+        # Flush pending if in timestamp list mode
+        if self.timestamp_list_mode and self.pending_ts and not self.pending_speaker and not self.pending_text:
+            self.flush_pending()
+        if not self.timestamp_list_mode and self.timestamp_only_run:
+            self.timestamp_only_run = 0
+            self.timestamp_run_start_idx = None
+
+        # Skip standalone speaker/location lines if no pending timestamp
+        if (
+            not self.pending_ts
+            and not self.timestamp_list_mode
+            and (SPEAKER_LINE_RE.match(line) or LOCATION_PAREN_RE.match(line))
+        ):
+            return
+
+        # Handle timestamp list mode data assignment
+        if self._handle_timestamp_list_data(line, forced_type):
+            return
+
+        # Detect header/annotation without forced type
+        if self._handle_implicit_metadata(line, upper, has_lower, idx, forced_type):
+            return
+
+        # Accumulate text for pending communication
+        self._accumulate_pending_text(line)
+
+    def _adjust_forced_type(self, forced_type: str | None, line: str, upper: str, has_lower: bool, has_timestamp: bool, idx: int) -> str | None:
+        """Adjusts the forced type based on context and line characteristics."""
+        # In timestamp list mode, only keep specific forced types
         if self.timestamp_list_mode and forced_type in ("header", "footer", "annotation", "meta"):
             if not (
                 (forced_type == "footer" and line.lstrip().startswith("***"))
                 or (forced_type == "meta" and fuzzy_find(line, END_OF_TAPE_KEYWORD))
-                or (
-                    forced_type == "header"
-                    and (
-                        HEADER_PAGE_ONLY_RE.match(line)
-                        or HEADER_TAPE_ONLY_RE.match(line)
-                        or HEADER_TAPE_PAGE_ONLY_RE.match(line)
-                    )
-                )
+                or (forced_type == "header" and self._is_header_only(line))
             ):
                 forced_type = None
 
+        # Timestamp overrides metadata type
         if forced_type in ("header", "footer", "annotation", "meta") and has_timestamp:
             forced_type = "comm"
 
-        if is_header_only and not has_timestamp:
-            return
-
+        # Meta type refinement
         if forced_type == "meta":
             if idx <= (self.first_ts_idx or -1) and (HEADER_PAGE_RE.search(upper) or HEADER_TAPE_RE.search(upper)):
                 forced_type = "header"
             elif self.pending_ts or self.prev_comm_like or has_lower:
                 forced_type = "comm"
 
+        # Short uppercase lines after comm are likely comm continuations
         if (
             forced_type is None
             and self.prev_comm_like
@@ -362,237 +417,290 @@ class TranscriptParser:
         ):
             forced_type = "comm"
 
+        # Annotation refinement
         if forced_type == "annotation":
             if TIMESTAMP_PREFIX_RE.match(line) or TIMESTAMP_STRICT_RE.match(line):
                 forced_type = "comm"
             elif "(REV" not in upper and "(RFV" not in upper:
                 if has_lower:
                     forced_type = "comm"
-                elif len(line.strip()) <= 4 and not has_lower:
+                elif len(line.strip()) <= 4:
                     forced_type = "comm"
 
-        if forced_type == "comm" and not self.saw_comm_or_ts:
-            if not TIMESTAMP_PREFIX_RE.match(line) and not TIMESTAMP_STRICT_RE.match(line):
-                self.pending_text.append(line)
-                return
-
-        if location_only:
-            location_value = location_only.group(1).strip()
-            if self.pending_ts:
-                self.pending_location = location_value
-                return
-            if self.rows and self.rows[-1].get("type") == "comm" and not self.rows[-1].get("location"):
-                self.rows[-1]["location"] = location_value
-                return
-
-        if SPEAKER_LINE_RE.match(line) and not self.pending_ts and not self.timestamp_list_mode:
-            if self.rows and self.rows[-1].get("type") == "comm" and not self.rows[-1].get("speaker"):
-                self.rows[-1]["speaker"] = self.normalize_speaker(line)
-                return
-
-        if forced_type is None and fuzzy_find(line, END_OF_TAPE_KEYWORD):
-            self.flush_pending()
-            self.line_index += 1
-            self.rows.append(
-                {
-                    "page": self.page_num + 1,
-                    "line": self.line_index,
-                    "type": "meta",
-                    "timestamp": "",
-                    "speaker": "",
-                    "location": "",
-                    "text": line,
-                }
-            )
-            self.prev_comm_like = False
-            return
-
+        # Header with REV/RFV is actually annotation
         if forced_type == "header" and ("(REV" in upper or "(RFV" in upper):
             forced_type = "annotation"
 
+        # Footer refinement
         if forced_type == "footer":
             if fuzzy_find(line, END_OF_TAPE_KEYWORD):
                 forced_type = "meta"
             elif not line.lstrip().startswith("***"):
                 forced_type = "comm"
 
-        if forced_type in ("header", "footer", "annotation", "meta"):
-            self.flush_pending()
-            self.line_index += 1
-            self.rows.append(
-                {
-                    "page": self.page_num + 1,
-                    "line": self.line_index,
-                    "type": "meta" if forced_type == "meta" else forced_type,
-                    "timestamp": "",
-                    "speaker": "",
-                    "location": "",
-                    "text": line,
-                }
-            )
-            self.prev_comm_like = forced_type == "annotation" and has_lower
-            return
+        return forced_type
 
-        if forced_type == "comm":
-            self.pending_force_comm = True
-            self.saw_comm_or_ts = True
+    def _is_header_only(self, line: str) -> bool:
+        """Checks if line is header-only (PAGE X, TAPE Y patterns)."""
+        return bool(
+            HEADER_PAGE_ONLY_RE.match(line)
+            or HEADER_TAPE_ONLY_RE.match(line)
+            or HEADER_TAPE_PAGE_ONLY_RE.match(line)
+        )
 
-        # Standalone timestamp
-        if TIMESTAMP_STRICT_RE.match(line) and not self.is_technical_data_not_timestamp(line):
-            self.flush_pending()
-            if self.timestamp_only_run == 0:
-                self.timestamp_run_start_idx = len(self.rows)
-            self.pending_ts = line
-            self.timestamp_only_run += 1
-            if self.timestamp_only_run >= 5:
-                self.timestamp_list_mode = True
-                if self.timestamp_list_start_idx is None:
-                    self.timestamp_list_start_idx = self.timestamp_run_start_idx
-                    self.timestamp_list_row_idx = self.timestamp_list_start_idx
-            self.prev_comm_like = True
-            self.saw_comm_or_ts = True
-            return
+    def _handle_location_only(self, line: str) -> bool:
+        """Handles lines that contain only a location tag like (CAP COMM)."""
+        location_match = LOCATION_PAREN_RE.match(line)
+        if not location_match:
+            return False
 
-        # Prefix timestamp
-        prefix_match = TIMESTAMP_PREFIX_RE.match(line) if not self.is_technical_data_not_timestamp(line) else None
-        if prefix_match:
-            self.flush_pending()
-            if self.timestamp_only_run == 0:
-                self.timestamp_run_start_idx = len(self.rows)
-            self.pending_ts = prefix_match.group(1)
-            self.timestamp_only_run += 1
-            if self.timestamp_only_run >= 5:
-                self.timestamp_list_mode = True
-                if self.timestamp_list_start_idx is None:
-                    self.timestamp_list_start_idx = self.timestamp_run_start_idx
-                    self.timestamp_list_row_idx = self.timestamp_list_start_idx
-            remainder = line[len(self.pending_ts) :].strip()
-            if remainder.startswith("+") and len(self.pending_ts.split()) == 3:
-                plus_match = re.match(r"^\+(\d)\b", remainder)
-                if plus_match:
-                    self.pending_ts = f"{self.pending_ts} 4{plus_match.group(1)}"
-                    remainder = remainder[plus_match.end():].strip()
-            if remainder:
-                tokens = remainder.split()
-                if (
-                    len(tokens) >= 2
-                    and tokens[0].isdigit()
-                    and len(tokens[0]) <= 2
-                    and SPEAKER_TOKEN_RE.match(tokens[1])
-                ):
-                    self.pending_ts_hint = tokens.pop(0)
-                speaker, tokens = self.take_speaker_tokens(tokens)
-                if speaker:
-                    self.pending_speaker = speaker
-                    loc_match = re.search(r"\(([^)]+)\)", self.pending_speaker)
-                    if loc_match:
-                        self.pending_location = loc_match.group(1)
-                        self.pending_speaker = self.pending_speaker[: loc_match.start()].strip()
-                    elif tokens and re.match(r"^\([^)]+\)$", tokens[0]):
-                        self.pending_location = tokens.pop(0).strip("()")
-                if tokens:
-                    self.pending_text.append(" ".join(tokens))
-            self.prev_comm_like = True
-            self.saw_comm_or_ts = True
-            return
+        location_value = location_match.group(1).strip()
+        if self.pending_ts:
+            self.pending_location = location_value
+            return True
 
-        if self.timestamp_list_mode and self.pending_ts and not self.pending_speaker and not self.pending_text:
-            self.flush_pending()
-        if not self.timestamp_list_mode and self.timestamp_only_run:
-            self.timestamp_only_run = 0
-            self.timestamp_run_start_idx = None
+        if self.rows and self.rows[-1].get("type") == "comm" and not self.rows[-1].get("location"):
+            self.rows[-1]["location"] = location_value
+            return True
 
-        if (
-            not self.pending_ts
-            and not self.timestamp_list_mode
-            and (SPEAKER_LINE_RE.match(line) or LOCATION_PAREN_RE.match(line))
-        ):
-            return
-        if (
-            self.timestamp_list_mode
-            and not self.pending_ts
-            and forced_type is None
-            and self.timestamp_list_row_idx is not None
-        ):
-            if self.timestamp_list_row_idx >= len(self.rows):
-                self.timestamp_list_row_idx = len(self.rows) - 1 if self.rows else None
-            if self.timestamp_list_row_idx is not None and self.timestamp_list_row_idx >= 0:
+        return False
+
+    def _handle_standalone_speaker(self, line: str) -> bool:
+        """Handles standalone speaker lines that attach to previous comm."""
+        if SPEAKER_LINE_RE.match(line) and not self.pending_ts and not self.timestamp_list_mode:
+            if self.rows and self.rows[-1].get("type") == "comm" and not self.rows[-1].get("speaker"):
+                self.rows[-1]["speaker"] = self.normalize_speaker(line)
+                return True
+        return False
+
+    def _handle_metadata_line(self, forced_type: str, line: str, upper: str, has_lower: bool):
+        """Appends header, footer, annotation, or meta rows."""
+        self.flush_pending()
+        self.line_index += 1
+        self.rows.append(
+            {
+                "page": self.page_num + 1,
+                "line": self.line_index,
+                "type": "meta" if forced_type == "meta" else forced_type,
+                "timestamp": "",
+                "speaker": "",
+                "location": "",
+                "text": line,
+            }
+        )
+        self.prev_comm_like = forced_type == "annotation" and has_lower
+
+    def _append_meta_row(self, line: str):
+        """Appends a generic meta row (e.g., END OF TAPE)."""
+        self.flush_pending()
+        self.line_index += 1
+        self.rows.append(
+            {
+                "page": self.page_num + 1,
+                "line": self.line_index,
+                "type": "meta",
+                "timestamp": "",
+                "speaker": "",
+                "location": "",
+                "text": line,
+            }
+        )
+
+    def _handle_standalone_timestamp(self, line: str) -> bool:
+        """Handles lines containing only a timestamp."""
+        if not TIMESTAMP_STRICT_RE.match(line) or self.is_technical_data_not_timestamp(line):
+            return False
+
+        self.flush_pending()
+        if self.timestamp_only_run == 0:
+            self.timestamp_run_start_idx = len(self.rows)
+        self.pending_ts = line
+        self.timestamp_only_run += 1
+
+        # Detect timestamp list mode after 5 consecutive timestamps
+        if self.timestamp_only_run >= 5:
+            self.timestamp_list_mode = True
+            if self.timestamp_list_start_idx is None:
+                self.timestamp_list_start_idx = self.timestamp_run_start_idx
+                self.timestamp_list_row_idx = self.timestamp_list_start_idx
+
+        self.prev_comm_like = True
+        self.saw_comm_or_ts = True
+        return True
+
+    def _handle_prefix_timestamp(self, line: str) -> bool:
+        """Handles lines starting with timestamp followed by speaker/text."""
+        if self.is_technical_data_not_timestamp(line):
+            return False
+
+        prefix_match = TIMESTAMP_PREFIX_RE.match(line)
+        if not prefix_match:
+            return False
+
+        self.flush_pending()
+        if self.timestamp_only_run == 0:
+            self.timestamp_run_start_idx = len(self.rows)
+
+        self.pending_ts = prefix_match.group(1)
+        self.timestamp_only_run += 1
+
+        # Detect timestamp list mode
+        if self.timestamp_only_run >= 5:
+            self.timestamp_list_mode = True
+            if self.timestamp_list_start_idx is None:
+                self.timestamp_list_start_idx = self.timestamp_run_start_idx
+                self.timestamp_list_row_idx = self.timestamp_list_start_idx
+
+        # Parse remainder (speaker, location, text)
+        remainder = line[len(self.pending_ts):].strip()
+
+        # Handle +X suffix for seconds (e.g., "00 01 23 +4" -> "00 01 23 44")
+        if remainder.startswith("+") and len(self.pending_ts.split()) == 3:
+            plus_match = re.match(r"^\+(\d)\b", remainder)
+            if plus_match:
+                self.pending_ts = f"{self.pending_ts} 4{plus_match.group(1)}"
+                remainder = remainder[plus_match.end():].strip()
+
+        if remainder:
+            tokens = remainder.split()
+
+            # Extract timestamp suffix hint (e.g., "12" before speaker)
+            if (
+                len(tokens) >= 2
+                and tokens[0].isdigit()
+                and len(tokens[0]) <= 2
+                and SPEAKER_TOKEN_RE.match(tokens[1])
+            ):
+                self.pending_ts_hint = tokens.pop(0)
+
+            # Extract speaker
+            speaker, tokens = self.take_speaker_tokens(tokens)
+            if speaker:
+                self.pending_speaker = speaker
+
+                # Extract location from speaker (e.g., "CC (CAPCOM)")
+                loc_match = re.search(r"\(([^)]+)\)", self.pending_speaker)
+                if loc_match:
+                    self.pending_location = loc_match.group(1)
+                    self.pending_speaker = self.pending_speaker[:loc_match.start()].strip()
+                elif tokens and re.match(r"^\([^)]+\)$", tokens[0]):
+                    self.pending_location = tokens.pop(0).strip("()")
+
+            # Remaining tokens are text
+            if tokens:
+                self.pending_text.append(" ".join(tokens))
+
+        self.prev_comm_like = True
+        self.saw_comm_or_ts = True
+        return True
+
+    def _handle_timestamp_list_data(self, line: str, forced_type: str | None) -> bool:
+        """Assigns speaker/location/text to existing timestamp rows in list mode."""
+        if not self.timestamp_list_mode or self.pending_ts or forced_type is not None:
+            return False
+
+        if self.timestamp_list_row_idx is None:
+            return False
+
+        # Ensure row index is valid
+        if self.timestamp_list_row_idx >= len(self.rows):
+            self.timestamp_list_row_idx = len(self.rows) - 1 if self.rows else None
+
+        if self.timestamp_list_row_idx is None or self.timestamp_list_row_idx < 0:
+            return False
+
+        row = self.rows[self.timestamp_list_row_idx]
+
+        # Assign speaker
+        if SPEAKER_LINE_RE.match(line):
+            if row.get("speaker"):
+                self._advance_timestamp_list_row()
                 row = self.rows[self.timestamp_list_row_idx]
-                if SPEAKER_LINE_RE.match(line):
-                    if row.get("speaker"):
-                        self.timestamp_list_row_idx += 1
-                        if self.timestamp_list_row_idx >= len(self.rows):
-                            self.timestamp_list_row_idx = len(self.rows) - 1
-                        row = self.rows[self.timestamp_list_row_idx]
-                    row["speaker"] = self.normalize_speaker(line)
-                elif LOCATION_PAREN_RE.match(line):
-                    if row.get("location"):
-                        self.timestamp_list_row_idx += 1
-                        if self.timestamp_list_row_idx >= len(self.rows):
-                            self.timestamp_list_row_idx = len(self.rows) - 1
-                        row = self.rows[self.timestamp_list_row_idx]
-                    row["location"] = line.strip("()").strip()
-                else:
-                    if row.get("text") and (row.get("speaker") or row.get("location")):
-                        self.timestamp_list_row_idx += 1
-                        if self.timestamp_list_row_idx >= len(self.rows):
-                            self.timestamp_list_row_idx = len(self.rows) - 1
-                        row = self.rows[self.timestamp_list_row_idx]
-                    row["text"] = (row.get("text", "") + " " + line).strip()
+            row["speaker"] = self.normalize_speaker(line)
+        # Assign location
+        elif LOCATION_PAREN_RE.match(line):
+            if row.get("location"):
+                self._advance_timestamp_list_row()
+                row = self.rows[self.timestamp_list_row_idx]
+            row["location"] = line.strip("()").strip()
+        # Assign text
+        else:
+            if row.get("text") and (row.get("speaker") or row.get("location")):
+                self._advance_timestamp_list_row()
+                row = self.rows[self.timestamp_list_row_idx]
+            row["text"] = (row.get("text", "") + " " + line).strip()
+
+        return True
+
+    def _advance_timestamp_list_row(self):
+        """Moves to next row in timestamp list mode."""
+        self.timestamp_list_row_idx += 1
+        if self.timestamp_list_row_idx >= len(self.rows):
+            self.timestamp_list_row_idx = len(self.rows) - 1
+
+    def _handle_implicit_metadata(self, line: str, upper: str, has_lower: bool, idx: int, forced_type: str | None) -> bool:
+        """Detects and handles header/annotation lines without forced type."""
+        if forced_type is not None or self.pending_ts:
+            return False
+
+        is_header = (
+            self.first_ts_idx is not None
+            and idx <= self.first_ts_idx
+            and self.header_keyword_match(line)
+        )
+        is_annotation = (
+            "(REV" in upper
+            or "(RFV" in upper
+            or (
+                self.mission_keywords
+                and not has_lower
+                and len(line.strip()) <= 30
+                and any(fuzzy_find(line, kw) for kw in self.mission_keywords)
+            )
+        )
+        is_end_of_tape = fuzzy_find(line, END_OF_TAPE_KEYWORD)
+        is_transition = self.transition_keyword_match(line)
+
+        if not (is_header or is_annotation or is_end_of_tape or is_transition):
+            return False
+
+        self.flush_pending()
+        self.line_index += 1
+        self.rows.append(
+            {
+                "page": self.page_num + 1,
+                "line": self.line_index,
+                "type": "meta" if (is_end_of_tape or is_transition) else ("header" if is_header else "annotation"),
+                "timestamp": "",
+                "speaker": "",
+                "location": "",
+                "text": line,
+            }
+        )
+        return True
+
+    def _accumulate_pending_text(self, line: str):
+        """Accumulates text for the current pending communication."""
+        # Handle comm lines before first timestamp
+        if not self.saw_comm_or_ts and not TIMESTAMP_PREFIX_RE.match(line) and not TIMESTAMP_STRICT_RE.match(line):
+            self.pending_text.append(line)
             return
-
-        if forced_type is None and not self.pending_ts:
-            is_header = (
-                not self.pending_ts
-                and self.first_ts_idx is not None
-                and idx <= self.first_ts_idx
-                and self.header_keyword_match(line)
-            )
-            is_annotation = (
-                "(REV" in upper
-                or "(RFV" in upper
-                or (
-                    self.mission_keywords
-                    and not self.pending_ts
-                    and not has_lower
-                    and len(line.strip()) <= 30
-                    and any(fuzzy_find(line, kw) for kw in self.mission_keywords)
-                )
-            )
-            is_end_of_tape = fuzzy_find(line, END_OF_TAPE_KEYWORD)
-            is_transition = self.transition_keyword_match(line)
-
-            if is_header or is_annotation or is_end_of_tape or is_transition:
-                self.flush_pending()
-                self.line_index += 1
-                self.rows.append(
-                    {
-                        "page": self.page_num + 1,
-                        "line": self.line_index,
-                        "type": "meta"
-                        if (is_end_of_tape or is_transition)
-                        else ("header" if is_header else "annotation"),
-                        "timestamp": "",
-                        "speaker": "",
-                        "location": "",
-                        "text": line,
-                    }
-                )
-                return
 
         if self.pending_ts:
-            # Check for location tag at the start of the line
-            loc_at_start_match = re.match(r"^\s*\(([A-Z0-9\s]+)\)\s*", line)
-            if loc_at_start_match:
-                self.pending_location = loc_at_start_match.group(1).strip()
-                line = line[loc_at_start_match.end() :].strip()
+            # Check for location tag at start
+            loc_match = re.match(r"^\s*\(([A-Z0-9\s]+)\)\s*", line)
+            if loc_match:
+                self.pending_location = loc_match.group(1).strip()
+                line = line[loc_match.end():].strip()
                 if not line:
                     return
 
+            # Check if line is a speaker
             if SPEAKER_LINE_RE.match(line) or SPEAKER_PAREN_RE.match(line):
                 new_speaker = self.normalize_speaker(line) if not self.pending_speaker else line
                 self.pending_speaker = f"{self.pending_speaker} {new_speaker}".strip() if self.pending_speaker else new_speaker
                 return
+
             self.pending_text.append(line)
             self.prev_comm_like = True
             self.saw_comm_or_ts = True

@@ -3,6 +3,7 @@ Build final page JSON from parsed rows.
 """
 
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from src.utils.station_normalization import match_station_name
@@ -35,6 +36,24 @@ from .utils import (
     clean_leading_footer_noise,
     extract_header_metadata,
 )
+
+
+@dataclass
+class PageBuilderConfig:
+    """
+    Configuration object for build_page_json().
+
+    Consolidates mission-specific settings and correction data.
+    """
+    page_offset: int = 0
+    valid_speakers: list[str] = field(default_factory=list)
+    text_replacements: dict[str, str] = field(default_factory=dict)
+    mission_keywords: list[str] = field(default_factory=list)
+    valid_locations: list[str] = field(default_factory=list)
+    inline_annotation_terms: list[str] = field(default_factory=list)
+    lexicon_path: Path | None = None
+    footer_text_overrides: dict[int, str] = field(default_factory=dict)
+    speaker_ocr_fixes: dict[str, str] = field(default_factory=dict)
 
 
 def normalize_timestamp(ts: str) -> str:
@@ -76,23 +95,27 @@ def build_page_json(
     rows: list[dict],
     lines: list[str],
     page_num: int,
-    page_offset: int = 0,
-    valid_speakers: list[str] | None = None,
-    text_replacements: dict[str, str] | None = None,
-    mission_keywords: list[str] | None = None,
-    valid_locations: list[str] | None = None,
-    inline_annotation_terms: list[str] | None = None,
+    config: PageBuilderConfig,
     initial_ts: str | None = None,
     previous_block_type: str | None = None,
-    lexicon_path: Path | None = None,
-    footer_text_overrides: dict[int, str] | None = None,
-    speaker_ocr_fixes: dict[str, str] | None = None,
     has_footer: bool = False,
 ) -> dict:
     """
     Build final page JSON from parsed rows with all corrections applied.
+
+    Args:
+        rows: Parsed OCR rows from the parser
+        lines: Raw OCR text lines
+        page_num: Zero-indexed page number
+        config: Configuration object with mission settings
+        initial_ts: Previous page's last timestamp (for continuity)
+        previous_block_type: Last block type from previous page
+        has_footer: Whether page contains footer marker
+
+    Returns:
+        Dictionary with 'header' and 'blocks' keys
     """
-    header_info = extract_header_metadata(lines, page_num, page_offset)
+    header_info = extract_header_metadata(lines, page_num, config.page_offset)
     header_info["footer"] = has_footer
     blocks = []
 
@@ -130,9 +153,9 @@ def build_page_json(
             if block_type == "footer" and row["text"].lstrip().startswith("***"):
                 block["text"] = "*** Three asterisks denote clipping of words and phrases."
             # Apply footer text overrides for pages with corrupted footers
-            display_page = page_num + 1 + page_offset
-            if block_type == "footer" and footer_text_overrides and display_page in footer_text_overrides:
-                block["text"] = footer_text_overrides[display_page]
+            display_page = page_num + 1 + config.page_offset
+            if block_type == "footer" and config.footer_text_overrides and display_page in config.footer_text_overrides:
+                block["text"] = config.footer_text_overrides[display_page]
             if (
                 block.get("text")
                 and (
@@ -234,7 +257,7 @@ def build_page_json(
         merged_blocks.append(block)
     blocks = merged_blocks
     blocks = clean_or_merge_continuations(blocks)
-    blocks = merge_inline_annotations(blocks, inline_annotation_terms)
+    blocks = merge_inline_annotations(blocks, config.inline_annotation_terms)
     blocks = merge_fragment_annotations(blocks)
 
     # Canonicalize REST PERIOD pages
@@ -277,8 +300,8 @@ def build_page_json(
             text = clean_leading_footer_noise(text)
 
             # Remove any residual location tags (from anywhere in text): "(TRANQ) ..."
-            if valid_locations:
-                for loc in valid_locations:
+            if config.valid_locations:
+                for loc in config.valid_locations:
                     # Remove location tags from anywhere in the text
                     text = re.sub(rf"\(\s*{re.escape(loc)}\s*\)\s*", " ", text, flags=re.IGNORECASE)
                     text = text.strip()

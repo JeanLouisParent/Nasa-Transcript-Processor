@@ -158,7 +158,7 @@ class PipelineConsole:
         self.stats["failed"] += 1
         self.log(f"Page {page_num+1:<3} [red]Error[/red]: {error}")
 
-    def finish(self):
+    def finish(self) -> None:
         """
         Stops the live display and prints a final session summary table.
         """

@@ -111,6 +111,156 @@ def find_comm_index(
     return None
 
 
+def _merge_comm_block(
+    fallback_block: dict,
+    fb_text: str,
+    preferred_blocks: list[dict],
+    preferred_texts: set[str],
+    preferred_text_list: list[str],
+    word_overlap_ratio,
+) -> None:
+    """
+    Merges a comm block from fallback into preferred blocks.
+
+    Handles text replacement, insertion of significantly different quotes,
+    and metadata copying.
+    """
+    target_idx = find_comm_index(
+        preferred_blocks,
+        fallback_block.get("timestamp", ""),
+        fallback_block.get("speaker", ""),
+        fallback_block.get("location", ""),
+        first=True
+    )
+
+    if target_idx is None or not fb_text:
+        return
+
+    preferred_block = preferred_blocks[target_idx]
+    pref_text = preferred_block.get("text", "")
+
+    # Check if texts are significantly different (different quotes at same timestamp)
+    if _are_texts_significantly_different(pref_text, fb_text):
+        preferred_blocks.insert(target_idx + 1, fallback_block)
+        preferred_texts.add(normalize_text_for_match(fb_text))
+        preferred_text_list.append(fb_text)
+        return
+
+    # Determine if we should replace or augment the text
+    pref_score = text_quality_score(pref_text)
+    fb_score = text_quality_score(fb_text)
+
+    # Case 1: Fallback text contains preferred text (expansion)
+    if pref_text and fb_text and pref_text in fb_text and len(fb_text) - len(pref_text) >= 8:
+        _update_block_with_fallback(preferred_block, fallback_block, fb_text)
+
+    # Case 2: High word overlap with significant length difference
+    elif (
+        pref_text
+        and fb_text
+        and len(fb_text) - len(pref_text) >= 8
+        and word_overlap_ratio(pref_text, fb_text) >= 0.85
+    ):
+        _update_block_with_fallback(preferred_block, fallback_block, fb_text)
+
+    # Case 3: Short preferred text, long fallback text, low overlap (missing context)
+    elif (
+        pref_text
+        and pref_score >= 0.8
+        and len(pref_text.strip()) <= 15
+        and len(fb_text.strip()) >= 25
+        and word_overlap_ratio(pref_text, fb_text) < 0.2
+    ):
+        preferred_blocks.insert(target_idx + 1, {"type": "continuation", "text": fb_text})
+        preferred_texts.add(normalize_text_for_match(fb_text))
+
+    # Case 4: Fallback has significantly better quality
+    elif not pref_text or pref_score < 0.6 or fb_score > pref_score + 0.4:
+        _update_block_with_fallback(preferred_block, fallback_block, fb_text)
+
+
+def _are_texts_significantly_different(text1: str, text2: str) -> bool:
+    """
+    Checks if two texts are significantly different (< 30% word overlap).
+
+    Used to detect different quotes at the same timestamp.
+    """
+    if not text1 or not text2:
+        return False
+
+    words1 = set(text1.lower().split())
+    words2 = set(text2.lower().split())
+
+    if not words1 or not words2:
+        return False
+
+    overlap = len(words1 & words2) / min(len(words1), len(words2))
+    return overlap < 0.3
+
+
+def _update_block_with_fallback(
+    preferred_block: dict,
+    fallback_block: dict,
+    fb_text: str,
+) -> None:
+    """
+    Updates a preferred block with text and metadata from fallback.
+    """
+    preferred_block["text"] = fb_text
+
+    if not preferred_block.get("speaker") and fallback_block.get("speaker"):
+        preferred_block["speaker"] = fallback_block.get("speaker")
+
+    if not preferred_block.get("location") and fallback_block.get("location"):
+        preferred_block["location"] = fallback_block.get("location")
+
+
+def _merge_continuation_block(
+    fallback_block: dict,
+    fb_text: str,
+    idx: int,
+    preferred_blocks: list[dict],
+    preferred_texts: set[str],
+    prev_ts_list: list[str | None],
+    next_ts_list: list[str | None],
+    is_near_duplicate,
+) -> None:
+    """
+    Merges a continuation block from fallback into preferred blocks.
+
+    Finds the appropriate insertion point based on surrounding timestamps.
+    """
+    # Skip if not substantive or duplicate
+    if not should_insert_continuation(fb_text):
+        return
+
+    if normalize_text_for_match(fb_text) in preferred_texts:
+        return
+
+    if is_near_duplicate(fb_text):
+        return
+
+    # Find insertion point based on surrounding timestamps
+    prev_ts = prev_ts_list[idx]
+    next_ts = next_ts_list[idx]
+    insert_idx = None
+
+    if prev_ts:
+        insert_idx = find_comm_index(preferred_blocks, prev_ts, first=False)
+        if insert_idx is not None:
+            insert_idx += 1
+
+    if insert_idx is None and next_ts:
+        insert_idx = find_comm_index(preferred_blocks, next_ts, first=True)
+
+    if insert_idx is None:
+        insert_idx = 0
+
+    # Insert the continuation block
+    preferred_blocks.insert(insert_idx, {"type": "continuation", "text": fb_text})
+    preferred_texts.add(normalize_text_for_match(fb_text))
+
+
 def merge_payloads(preferred: dict, fallback: dict) -> dict:
     """
     Merge two page payloads, preferring blocks from the 'preferred' payload
@@ -163,96 +313,31 @@ def merge_payloads(preferred: dict, fallback: dict) -> dict:
 
     for idx, fallback_block in enumerate(fallback_blocks):
         fb_text = fallback_block.get("text", "")
+
+        # Process comm blocks
         if fallback_block.get("type") == "comm" and fallback_block.get("timestamp"):
-            target_idx = find_comm_index(
+            _merge_comm_block(
+                fallback_block,
+                fb_text,
                 preferred_blocks,
-                fallback_block.get("timestamp", ""),
-                fallback_block.get("speaker", ""),
-                fallback_block.get("location", ""),
-                first=True
+                preferred_texts,
+                preferred_text_list,
+                word_overlap_ratio,
             )
-            if target_idx is not None and fb_text:
-                preferred_block = preferred_blocks[target_idx]
-                pref_text = preferred_block.get("text", "")
-
-                # Check if texts are significantly different (different quotes at same timestamp)
-                if pref_text and fb_text:
-                    pref_words = set(pref_text.lower().split())
-                    fb_words = set(fb_text.lower().split())
-                    if pref_words and fb_words:
-                        overlap = len(pref_words & fb_words) / min(len(pref_words), len(fb_words))
-                        if overlap < 0.3:
-                            # Very different texts - insert as separate block instead of replacing
-                            preferred_blocks.insert(target_idx + 1, fallback_block)
-                            preferred_texts.add(normalize_text_for_match(fb_text))
-                            preferred_text_list.append(fb_text)
-                            continue
-
-                pref_score = text_quality_score(pref_text)
-                fb_score = text_quality_score(fb_text)
-                if (
-                    pref_text
-                    and fb_text
-                    and pref_text in fb_text
-                    and len(fb_text) - len(pref_text) >= 8
-                ):
-                    preferred_block["text"] = fb_text
-                    if not preferred_block.get("speaker") and fallback_block.get("speaker"):
-                        preferred_block["speaker"] = fallback_block.get("speaker")
-                    if not preferred_block.get("location") and fallback_block.get("location"):
-                        preferred_block["location"] = fallback_block.get("location")
-                elif (
-                    pref_text
-                    and fb_text
-                    and len(fb_text) - len(pref_text) >= 8
-                    and word_overlap_ratio(pref_text, fb_text) >= 0.85
-                ):
-                    preferred_block["text"] = fb_text
-                    if not preferred_block.get("speaker") and fallback_block.get("speaker"):
-                        preferred_block["speaker"] = fallback_block.get("speaker")
-                    if not preferred_block.get("location") and fallback_block.get("location"):
-                        preferred_block["location"] = fallback_block.get("location")
-                elif (
-                    pref_text
-                    and pref_score >= 0.8
-                    and len(pref_text.strip()) <= 15
-                    and len(fb_text.strip()) >= 25
-                    and word_overlap_ratio(pref_text, fb_text) < 0.2
-                ):
-                    preferred_blocks.insert(target_idx + 1, {"type": "continuation", "text": fb_text})
-                    preferred_texts.add(normalize_text_for_match(fb_text))
-                elif (
-                    not pref_text
-                    or pref_score < 0.6
-                    or fb_score > pref_score + 0.4
-                ):
-                    preferred_block["text"] = fb_text
-                    if not preferred_block.get("speaker") and fallback_block.get("speaker"):
-                        preferred_block["speaker"] = fallback_block.get("speaker")
-                    if not preferred_block.get("location") and fallback_block.get("location"):
-                        preferred_block["location"] = fallback_block.get("location")
             continue
 
+        # Process continuation blocks
         if fallback_block.get("type") == "continuation":
-            if not should_insert_continuation(fb_text):
-                continue
-            if normalize_text_for_match(fb_text) in preferred_texts:
-                continue
-            if is_near_duplicate(fb_text):
-                continue
-            prev_ts = prev_ts_list[idx]
-            next_ts = next_ts_list[idx]
-            insert_idx = None
-            if prev_ts:
-                insert_idx = find_comm_index(preferred_blocks, prev_ts, first=False)
-                if insert_idx is not None:
-                    insert_idx += 1
-            if insert_idx is None and next_ts:
-                insert_idx = find_comm_index(preferred_blocks, next_ts, first=True)
-            if insert_idx is None:
-                insert_idx = 0
-            preferred_blocks.insert(insert_idx, {"type": "continuation", "text": fb_text})
-            preferred_texts.add(normalize_text_for_match(fb_text))
+            _merge_continuation_block(
+                fallback_block,
+                fb_text,
+                idx,
+                preferred_blocks,
+                preferred_texts,
+                prev_ts_list,
+                next_ts_list,
+                is_near_duplicate,
+            )
 
     preferred["blocks"] = preferred_blocks
     return preferred

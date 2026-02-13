@@ -31,27 +31,6 @@ page_offset = -2
 # Apollo 11 a un layout standard, on garde les défauts
 col1_end = 0.15
 col2_end = 0.30
-# Mission-specific keywords (stations, ships, aircraft)
-mission_keywords = [
-    "MILA",
-    "CANARY",
-    "VANGUARD",
-    "TANANARIVE",
-    "CARNARVON",
-    "HONEYSUCKLE",
-    "GOLDSTONE",
-    "GUAYMAS",
-    "BERMUDA",
-    "GRAND BAHAMA ISLANDS",
-    "ANTIGUA",
-    "REDSTONE",
-    "MERRITT ISLAND",
-    "HAWAII",
-    "HUNTSVILLE",
-    "MSFN",
-    "TEXAS",
-    "ARIA",
-]
 # Valid speakers for correction
 valid_speakers = [
     "CDR",
@@ -72,34 +51,15 @@ valid_speakers = [
 # EAGLE = Lunar Module, COLUMBIA = Command Module, TRANQ = Tranquility Base, EVA = Extra-Vehicular Activity
 valid_locations = ["EAGLE", "COLUMBIA", "TRANQ", "EVA"]
 
-[mission.11.speaker_ocr_fixes]
-"LIF" = "LMP"
-"IMI" = "LMP"
-"here?" = ""
-"DSKY?" = ""
-"CD" = "CDR"
-"CDF" = "CDR"
-"CIR" = "CDR"
-"CMF" = "CMP"
-"IMP" = "LMP"
-
-# Regex text replacements (applied AFTER spell-checking)
+# Mission-specific corrections for Apollo 11
 [mission.11.text_replacements]
-"\\bll\\b" = "11"
-"\\bI1\\b" = "11"
-"\\bil\\b" = "11"
-"(\\w+)'11" = "\\1'll"
-"GRAINED BEAM" = "GRAND BAHAMA"
-"Gunymas" = "Guaymas"
-"PFESS" = "PRESS"
-"PASS light" = "PRESS light"
-"MASTEP" = "MASTER"
-"\\btwelve\\s+(been|had|done|come|got|seen)\\b" = "we've \\1"
-"\\bIM\\b" = "LM"
-"\\bO([1-9])\\b" = "0\\1"
-"^[Rr]'?id\\b" = "I'd"
+# Number "11" OCR confusions (mission-specific, not applicable to Apollo 7-17)
+"\\bll\\b" = "11"              # lowercase LL → 11
+"\\bI1\\b" = "11"              # I + 1 → 11
+"\\bil\\b" = "11"              # i + l → 11
+"(\\w+)'11\\b" = "\\1'll"      # Recover apostrophe: word'11 → word'll (we'11 → we'll)
+# Specific transcription typos
 "\\bmothers-isn-law\\b" = "mothers-in-law"
-"\\b(His|Is)-IV" = "S-IV"
 
 [mission.12]
 file_name = "AS12_TEC.PDF"

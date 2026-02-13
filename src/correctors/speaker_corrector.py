@@ -4,7 +4,8 @@ Speaker identification and normalization logic.
 
 import re
 import difflib
-from loguru import logger
+
+from src.constants import CREW_SPEAKERS
 
 
 class SpeakerCorrector:
@@ -22,19 +23,57 @@ class SpeakerCorrector:
         }
 
     def is_garbage_speaker(self, speaker: str, mission_keywords: list[str] | None = None) -> bool:
+        """
+        Detects invalid or garbage speaker values.
+
+        Returns True if speaker is:
+        - Empty or whitespace-only
+        - A valid speaker (returns False)
+        - In OCR fixes mapping (returns False)
+        - All digits
+        - No alphanumeric characters
+        - Contains punctuation (?, !, ., etc.)
+        - Contains multiple parentheses patterns: "(TR) (TR)"
+        - Has repeated tokens
+        - Matches mission keywords (TLI, DSKY, etc.)
+        """
         if not speaker:
             return True
+
         s = speaker.upper().strip()
+
+        # Valid speakers are not garbage
         if s in self.valid_speakers_set:
             return False
+
+        # Known OCR fixes are not garbage (will be corrected)
         if s in self.ocr_fixes:
             return False
+
+        # All digits or no alphanumeric = garbage
         if s.isdigit() or not any(c.isalnum() for c in s):
             return True
+
+        # Contains punctuation (?, !, .) = garbage
+        if any(ch in s for ch in '?!.'):
+            return True
+
+        # Multiple parentheses patterns: "(TR) (TR)" or "( TR )"
+        paren_count = s.count('(') + s.count(')')
+        if paren_count >= 3:  # "(TR) (TR)" has 4 parens
+            return True
+
+        # Repeated tokens: "TR TR" or "CDR CDR"
+        tokens = s.split()
+        if len(tokens) >= 2 and len(set(tokens)) < len(tokens):
+            return True
+
+        # Matches mission keywords (e.g., TLI, DSKY)
         if mission_keywords:
             for kw in mission_keywords:
                 if s == kw.upper():
                     return True
+
         return False
 
     def correct_speaker(self, raw_speaker: str) -> str:
@@ -77,12 +116,27 @@ class SpeakerCorrector:
         candidates = self.valid_speakers
         if len(clean_norm) == 3:
             candidates = [s for s in self.valid_speakers if len(s) == 3]
+            # Common OCR character confusions for 3-letter callsigns
+            # F/R confusion: CDF → CDR, CMF → CMP
             mapped = clean_norm.replace("F", "R").replace("I", "R").replace("L", "R").replace("K", "R").replace("Y", "R")
             if mapped in self.valid_speakers_set:
                 return mapped
+            mapped = clean_norm.replace("F", "P")  # F → P confusion (CMF → CMP)
+            if mapped in self.valid_speakers_set:
+                return mapped
+            # M/N/H confusion
             mapped = clean_norm.replace("H", "M").replace("N", "M")
             if mapped in self.valid_speakers_set:
                 return mapped
+            # I/L confusion at start: IMP → LMP, IMI → LMI
+            if clean_norm.startswith("I"):
+                mapped = "L" + clean_norm[1:]
+                if mapped in self.valid_speakers_set:
+                    return mapped
+                # Also try with second character: IMI → LMI, then fuzzy match
+                matches = difflib.get_close_matches(mapped, candidates, n=1, cutoff=0.6)
+                if matches:
+                    return matches[0]
 
         matches = difflib.get_close_matches(clean_norm, candidates, n=1, cutoff=0.6)
         if matches:
@@ -114,23 +168,99 @@ class SpeakerCorrector:
         return None
 
     def _infer_from_context(self, prev_comm: dict | None, last_crew: str | None) -> str | None:
+        """
+        Infers speaker from conversational context (alternation pattern).
+
+        In typical communications:
+        - CC speaks, then crew responds
+        - Crew speaks, then CC responds
+        """
         if not prev_comm:
             return None
         prev_speaker = prev_comm.get("speaker", "")
         if not prev_speaker:
             return None
-        CREW_SPEAKERS = {"CDR", "CMP", "LMP"}
         if prev_speaker == "CC":
             return last_crew if last_crew else None
         if prev_speaker in CREW_SPEAKERS:
             return "CC"
         return None
 
+    def _infer_from_content(self, text: str, prev_comm: dict | None) -> str | None:
+        """
+        Infers speaker from content patterns.
+
+        Examples:
+        - "ROGER" often indicates CC acknowledging crew
+        - Questions often come from CC
+        - Technical readouts often come from crew
+        """
+        if not text:
+            return None
+
+        text_upper = text.upper()
+
+        # "ROGER" acknowledgments typically from CC (acknowledging crew)
+        if text_upper.startswith("ROGER"):
+            # If previous speaker was crew, this is likely CC
+            if prev_comm and prev_comm.get("speaker") in CREW_SPEAKERS:
+                return "CC"
+
+        # Direct questions with "?" often from CC
+        if "?" in text:
+            # If previous speaker was crew, this is likely CC asking
+            if prev_comm and prev_comm.get("speaker") in CREW_SPEAKERS:
+                return "CC"
+
+        return None
+
     def _recover_speaker(self, text: str, prev_comm: dict | None, last_crew: str | None, mission_keywords: list[str] | None = None) -> str | None:
+        """
+        Recovers missing or garbage speaker using multiple strategies (priority order):
+
+        1. Text extraction: Look for valid speaker in first 4 tokens
+        2. Context alternation: CC → crew, crew → CC patterns
+        3. Content-based: Infer from text content (ROGER, questions, etc.)
+        """
+        # Strategy 1: Extract from text
         speaker = self._extract_speaker_from_text(text, mission_keywords)
         if speaker:
             return speaker
-        return self._infer_from_context(prev_comm, last_crew)
+
+        # Strategy 2: Context alternation
+        speaker = self._infer_from_context(prev_comm, last_crew)
+        if speaker:
+            return speaker
+
+        # Strategy 3: Content-based inference
+        speaker = self._infer_from_content(text, prev_comm)
+        if speaker:
+            return speaker
+
+        return None
+
+    def _remove_speaker_from_text(self, text: str, speaker: str) -> str:
+        """Remove speaker callsign from start of text if present."""
+        if not text or not speaker:
+            return text
+
+        text_upper = text.upper()
+        speaker_upper = speaker.upper()
+
+        # Check if text starts with speaker (case-insensitive)
+        if text_upper.startswith(speaker_upper):
+            next_char_idx = len(speaker)
+            # Check for delimiter (space, period, colon, or end of string)
+            if next_char_idx >= len(text):
+                # Text is exactly the speaker, return empty
+                return ""
+            next_char = text[next_char_idx]
+            if next_char in ' .:':
+                # Remove speaker and delimiter(s)
+                remaining = text[next_char_idx:].lstrip(' .:')
+                return remaining
+
+        return text
 
     def process_blocks(self, blocks: list[dict], mission_keywords: list[str] | None = None) -> list[dict]:
         if not self.valid_speakers:
@@ -138,7 +268,6 @@ class SpeakerCorrector:
         mission_keywords = mission_keywords or []
         prev_comm = None
         last_crew = None
-        CREW_SPEAKERS = {"CDR", "CMP", "LMP"}
         for block in blocks:
             if block.get("type") != "comm":
                 continue
@@ -150,14 +279,19 @@ class SpeakerCorrector:
                 recovered = self._recover_speaker(text, prev_comm, last_crew, mission_keywords)
                 if recovered:
                     block["speaker"] = recovered
-                    if text.upper().startswith(recovered):
-                        remaining = text[len(recovered):].lstrip()
-                        if remaining:
-                            block["text"] = remaining
+                    # Remove speaker from text if it appears at start
+                    text = self._remove_speaker_from_text(text, recovered)
+                    block["text"] = text
                 elif is_garbage:
                     block["speaker"] = ""
             elif speaker:
-                block["speaker"] = self.correct_speaker(speaker)
+                corrected_speaker = self.correct_speaker(speaker)
+                block["speaker"] = corrected_speaker
+                # Also clean speaker from text for already-populated speakers
+                if corrected_speaker:
+                    text = self._remove_speaker_from_text(text, corrected_speaker)
+                    block["text"] = text
+
             if block.get("speaker"):
                 prev_comm = block
                 if block["speaker"] in CREW_SPEAKERS:

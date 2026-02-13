@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 class LexiconConfig(BaseModel):
     """Configuration for the lexicon-based corrections."""
-    path: Path = Path("resources/lexicon/apollo11_lexicon.json")
+    path: Path
     mission_keywords: list[str] = Field(default_factory=list)
 
 
@@ -18,7 +18,7 @@ class ParserConfig(BaseModel):
     """Configuration for the transcript parser."""
     header_keywords: list[str] = Field(default_factory=list)
     transition_keywords: list[str] = Field(default_factory=list)
-    end_of_tape_keyword: str = "END OF TAPE"
+    end_of_tape_keyword: str
     text_replacements: dict[str, str] = Field(default_factory=dict)
 
 
@@ -31,62 +31,62 @@ class CorrectorsConfig(BaseModel):
 class GlobalConfigModel(BaseModel):
     """
     Main configuration model for the application.
-    Validates input from defaults.toml.
+    Validates input from defaults.toml - all values come from TOML, not here.
     """
     # I/O
-    input_dir: Path = Path("input")
-    output_dir: Path = Path("output")
-    state_dir: Path = Path("state")
+    input_dir: Path
+    output_dir: Path
+    state_dir: Path
 
     # OCR Settings
-    ocr_url: str = "http://localhost:1234"
-    ocr_model: str = "qwen/qwen3-vl-4b"
-    ocr_prompt: str = "plain"
-    ocr_timeout: int = 120
-    ocr_max_tokens: int = 4096
-    ocr_text_column_pass: bool = True
-    ocr_dual_pass: bool = True
-    ocr_faint_pass: bool = True
+    ocr_url: str
+    ocr_model: str
+    ocr_prompt: str
+    ocr_timeout: int
+    ocr_max_tokens: int
+    ocr_text_column_pass: bool
+    ocr_dual_pass: bool
+    ocr_faint_pass: bool
 
     # Processing Settings
-    dpi: int = 300
-    parallel: bool = True
-    workers: int = 4
-    timing: bool = True
+    dpi: int
+    parallel: bool
+    workers: int
+    timing: bool
 
     # Image Enhancement
-    clahe_clip_limit: float = 2.0
-    clahe_grid_size: int = 8
-    bilateral_d: int = 9
-    bilateral_sigma_color: float = 75.0
-    bilateral_sigma_space: float = 75.0
-    unsharp_amount: float = 1.5
-    unsharp_sigma: float = 1.0
-    deskew_angle_threshold: float = 0.1
-    deskew_max_angle: float = 10.0
+    clahe_clip_limit: float
+    clahe_grid_size: int
+    bilateral_d: int
+    bilateral_sigma_color: float
+    bilateral_sigma_space: float
+    unsharp_amount: float
+    unsharp_sigma: float
+    deskew_angle_threshold: float
+    deskew_max_angle: float
 
     # Normalization settings (Letter size at 300 DPI)
-    target_width: int = 2550
-    target_height: int = 3300
-    margin_px: int = 75
-    output_format: str = "png"
+    target_width: int
+    target_height: int
+    margin_px: int
+    output_format: str
 
     # Layout Detection
-    col2_end: float = 0.30
-    min_block_area: int = 1000
-    max_block_area_ratio: float = 0.9
-    line_kernel_width: int = 50
-    line_kernel_height: int = 1
-    block_kernel_width: int = 5
-    block_kernel_height: int = 10
+    col2_end: float
+    min_block_area: int
+    max_block_area_ratio: float
+    line_kernel_width: int
+    line_kernel_height: int
+    block_kernel_width: int
+    block_kernel_height: int
 
     # Debug settings
-    debug: bool = False
+    debug: bool
 
     # Sub-configs
-    lexicon: LexiconConfig = Field(default_factory=LexiconConfig)
-    parser: ParserConfig = Field(default_factory=ParserConfig)
-    correctors: CorrectorsConfig = Field(default_factory=CorrectorsConfig)
+    lexicon: LexiconConfig
+    parser: ParserConfig
+    correctors: CorrectorsConfig
 
     @property
     def pipeline_defaults(self) -> dict[str, Any]:

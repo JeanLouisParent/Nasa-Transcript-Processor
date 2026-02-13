@@ -52,16 +52,38 @@ class PostProcessor:
         self.lexicon_path = lexicon_path
         self.station_pattern = re.compile(r"\b([A-Z0-9 ]{3,40}?)\s*\((REV|PASS|RFV)\s*(\d+)\)\s*", re.IGNORECASE)
 
+    def _is_noise_text(self, text: str) -> bool:
+        """Detect noise/garbage text that should be filtered."""
+        if not text:
+            return True
+        text = text.strip()
+        if len(text) < 2:
+            return True
+        # Only punctuation (-, ?, !, *, .)
+        if all(c in '?!.-*' for c in text):
+            return True
+        # Only 1-2 digit numbers (except valid looking codes)
+        if text.isdigit() and len(text) <= 2:
+            return True
+        # Single digit or char followed by punctuation (e.g. "1.", "2.")
+        if len(text) == 2 and text[0].isdigit() and text[1] in '.-':
+            return True
+        return False
+
     def _clean_text(self, text: str) -> str:
         """Applies low-level text cleaning rules before spell-checking."""
         if not text:
             return ""
-            
+
         # 1. Hardware/Location tag removal (e.g. (TRANQ), (COLUMBIA))
+        # Remove known valid locations
         if self.valid_locations:
             for loc in self.valid_locations:
                 pattern = re.compile(rf"\(?\s*{re.escape(loc)}\s*\)?", re.IGNORECASE)
                 text = pattern.sub(" ", text)
+
+        # Also remove any remaining short uppercase location-like tags (e.g. (MIN), (MI))
+        text = re.sub(r'\([A-Z]{2,5}\)\s*', ' ', text)
         
         # 2. Basic structural normalization
         text = remove_repeated_phrases(text)
@@ -214,13 +236,20 @@ class PostProcessor:
                     block["speaker"] = "SC"
 
         # 10. Filter noise
+        # Filter SC blocks with very short or garbage text
         blocks = [
-            b for b in blocks 
+            b for b in blocks
             if not (b.get("type") == "comm" and b.get("speaker") == "SC" and len(b.get("text", "").strip()) < 3 and not any(c.isalnum() for c in b.get("text", "")))
         ]
+        # Filter GOSS NET and footer noise
         blocks = [
-            b for b in blocks 
+            b for b in blocks
             if not (b.get("text") and (GOSS_NET_RE.match(str(b.get("text"))) or is_not1_footer_noise(str(b.get("text")))))
+        ]
+        # Filter generic noise texts (punctuation-only, short digits, etc.)
+        blocks = [
+            b for b in blocks
+            if not (b.get("type") == "comm" and self._is_noise_text(b.get("text", "")))
         ]
 
         # 11. Merge consecutive same-speaker blocks

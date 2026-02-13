@@ -33,7 +33,7 @@ from src.ocr.ocr_client import (
     TEXT_COLUMN_OCR_PROMPT,
     LMStudioOCRClient,
 )
-from src.ocr.ocr_parser import build_page_json, parse_ocr_text
+from src.ocr.ocr_parser import build_page_json, parse_ocr_text, PageBuilderConfig
 from src.ocr.parsing.merger import merge_payloads
 from src.ocr.parsing.patterns import (
     HEADER_PAGE_ONLY_RE,
@@ -83,6 +83,62 @@ def resolve_pdf_path(pdf_arg: str, input_dir: Path) -> Path:
         return path
     name = pdf_arg if path.suffix else f"{pdf_arg}.pdf"
     return input_dir / name
+
+
+def process_ocr_to_payload(
+    raw_text: str,
+    page_num: int,
+    mission_keywords: list[str],
+    valid_speakers: list[str],
+    page_builder_config: PageBuilderConfig,
+    post_processor,
+    ts_index: GlobalTimestampIndex,
+    previous_block_type: str | None,
+    apply_post_processing: bool = True,
+) -> dict:
+    """
+    Encapsulates the full OCR processing pipeline: parse → build → (optional post-process).
+
+    Args:
+        raw_text: Raw OCR output text
+        page_num: Zero-indexed page number
+        mission_keywords: Mission-specific keywords for parsing
+        valid_speakers: List of valid speaker callsigns
+        page_builder_config: Configuration for page building
+        post_processor: PostProcessor instance
+        ts_index: Global timestamp index for context
+        previous_block_type: Last block type from previous page
+        apply_post_processing: Whether to run post-processing (default True)
+
+    Returns:
+        Processed page payload dictionary
+    """
+    # Normalize newlines
+    text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
+
+    # Parse OCR text
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    rows, has_footer = parse_ocr_text(text, page_num, mission_keywords, valid_speakers)
+
+    # Get context from previous pages
+    initial_ts = ts_index.get_last_timestamp_before(page_num)
+
+    # Build page structure
+    payload = build_page_json(
+        rows,
+        lines,
+        page_num,
+        page_builder_config,
+        initial_ts=initial_ts,
+        previous_block_type=previous_block_type,
+        has_footer=has_footer,
+    )
+
+    # Post-process blocks (optional)
+    if apply_post_processing:
+        payload["blocks"] = post_processor.process_blocks(payload.get("blocks", []), initial_ts)
+
+    return payload
 
 
 def parse_pages(page_spec: str, max_pages: int) -> list[int]:
@@ -207,6 +263,19 @@ def run_ocr_pipeline(
     mission_speaker_ocr_fixes = mission_overrides.get("speaker_ocr_fixes", {})
     speaker_ocr_fixes = {**global_speaker_ocr_fixes, **mission_speaker_ocr_fixes}
 
+    # Create PageBuilderConfig once for all build_page_json calls
+    page_builder_config = PageBuilderConfig(
+        page_offset=page_offset,
+        valid_speakers=valid_speakers or [],
+        text_replacements=text_replacements or {},
+        mission_keywords=mission_keywords or [],
+        valid_locations=valid_locations or [],
+        inline_annotation_terms=invalid_location_annotations,
+        lexicon_path=lexicon_path,
+        footer_text_overrides=footer_text_overrides or {},
+        speaker_ocr_fixes=speaker_ocr_fixes,
+    )
+
     ocr_text_column_pass = bool(
         mission_overrides.get("ocr_text_column_pass")
         or config.pipeline_defaults.get("ocr_text_column_pass")
@@ -278,35 +347,19 @@ def run_ocr_pipeline(
             raw_text_output = raw_text
             if raw_text_output and not raw_text_output.endswith("\n"):
                 raw_text_output += "\n"
-            # Normalize newlines for parsing.
-            text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
-
+            # Process OCR through full pipeline
             t0 = time.perf_counter()
-            lines = [line.strip() for line in text.splitlines() if line.strip()]
-            rows, has_footer = parse_ocr_text(text, page_num, mission_keywords, valid_speakers)
-            stage_t["parse_plain"] = time.perf_counter() - t0
-
-            # Get last timestamp from previous pages
-            initial_ts = ts_index.get_last_timestamp_before(page_num)
-
-            t0 = time.perf_counter()
-            payload = build_page_json(
-                rows, lines, page_num, page_offset,
-                valid_speakers, text_replacements,
-                mission_keywords, valid_locations,
-                inline_annotation_terms=invalid_location_annotations,
-                initial_ts=initial_ts,
-                previous_block_type=previous_block_type,
-                lexicon_path=lexicon_path,
-                footer_text_overrides=footer_text_overrides,
-                speaker_ocr_fixes=speaker_ocr_fixes,
-                has_footer=has_footer
+            payload = process_ocr_to_payload(
+                raw_text,
+                page_num,
+                mission_keywords,
+                valid_speakers,
+                page_builder_config,
+                post_processor,
+                ts_index,
+                previous_block_type,
             )
-
-            # Run Post-Processing
-            payload["blocks"] = post_processor.process_blocks(payload.get("blocks", []), initial_ts)
-
-            stage_t["build_plain"] = time.perf_counter() - t0
+            stage_t["parse_and_build"] = time.perf_counter() - t0
 
             raw_image = None
             if ocr_dual_pass or ocr_faint_pass:
@@ -324,25 +377,18 @@ def run_ocr_pipeline(
                 raw_text_fallback_output = raw_text_fallback
                 if raw_text_fallback_output and not raw_text_fallback_output.endswith("\n"):
                     raw_text_fallback_output += "\n"
-                raw_text_fallback = raw_text_fallback.replace("\r\n", "\n").replace("\r", "\n")
                 t0 = time.perf_counter()
-                fallback_lines = [line.strip() for line in raw_text_fallback.splitlines() if line.strip()]
-                fallback_rows, fallback_has_footer = parse_ocr_text(raw_text_fallback, page_num, mission_keywords, valid_speakers)
-                stage_t["parse_raw"] = time.perf_counter() - t0
-                t0 = time.perf_counter()
-                fallback_payload = build_page_json(
-                    fallback_rows, fallback_lines, page_num, page_offset,
-                    valid_speakers, text_replacements,
-                    mission_keywords, valid_locations,
-                    inline_annotation_terms=invalid_location_annotations,
-                    initial_ts=initial_ts,
-                    previous_block_type=previous_block_type,
-                    lexicon_path=lexicon_path,
-                    speaker_ocr_fixes=speaker_ocr_fixes,
-                    has_footer=fallback_has_footer
+                fallback_payload = process_ocr_to_payload(
+                    raw_text_fallback,
+                    page_num,
+                    mission_keywords,
+                    valid_speakers,
+                    page_builder_config,
+                    post_processor,
+                    ts_index,
+                    previous_block_type,
                 )
-                fallback_payload["blocks"] = post_processor.process_blocks(fallback_payload.get("blocks", []), initial_ts)
-                stage_t["build_raw"] = time.perf_counter() - t0
+                stage_t["parse_and_build_raw"] = time.perf_counter() - t0
                 t0 = time.perf_counter()
                 payload = merge_payloads(payload, fallback_payload)
                 stage_t["merge_raw"] = time.perf_counter() - t0
@@ -362,25 +408,18 @@ def run_ocr_pipeline(
                 faint_text_output = faint_text
                 if faint_text_output and not faint_text_output.endswith("\n"):
                     faint_text_output += "\n"
-                faint_text = faint_text.replace("\r\n", "\n").replace("\r", "\n")
                 t0 = time.perf_counter()
-                faint_lines = [line.strip() for line in faint_text.splitlines() if line.strip()]
-                faint_rows, faint_has_footer = parse_ocr_text(faint_text, page_num, mission_keywords, valid_speakers)
-                stage_t["parse_faint"] = time.perf_counter() - t0
-                t0 = time.perf_counter()
-                faint_payload = build_page_json(
-                    faint_rows, faint_lines, page_num, page_offset,
-                    valid_speakers, text_replacements,
-                    mission_keywords, valid_locations,
-                    inline_annotation_terms=invalid_location_annotations,
-                    initial_ts=initial_ts,
-                    previous_block_type=previous_block_type,
-                    lexicon_path=lexicon_path,
-                    speaker_ocr_fixes=speaker_ocr_fixes,
-                    has_footer=faint_has_footer
+                faint_payload = process_ocr_to_payload(
+                    faint_text,
+                    page_num,
+                    mission_keywords,
+                    valid_speakers,
+                    page_builder_config,
+                    post_processor,
+                    ts_index,
+                    previous_block_type,
                 )
-                faint_payload["blocks"] = post_processor.process_blocks(faint_payload.get("blocks", []), initial_ts)
-                stage_t["build_faint"] = time.perf_counter() - t0
+                stage_t["parse_and_build_faint"] = time.perf_counter() - t0
                 t0 = time.perf_counter()
                 payload = merge_payloads(payload, faint_payload)
                 stage_t["merge_faint"] = time.perf_counter() - t0
@@ -809,6 +848,19 @@ def reparse_from_ocr(pdf_name: str, pages: str):
         lexicon_path=lexicon_path,
     )
 
+    # Create PageBuilderConfig once for all build_page_json calls
+    page_builder_config = PageBuilderConfig(
+        page_offset=mission_cfg.page_offset,
+        valid_speakers=valid_speakers or [],
+        text_replacements=text_replacements or {},
+        mission_keywords=mission_keywords or [],
+        valid_locations=valid_locations or [],
+        inline_annotation_terms=invalid_location_annotations,
+        lexicon_path=lexicon_path,
+        footer_text_overrides=footer_text_overrides or {},
+        speaker_ocr_fixes=speaker_ocr_fixes,
+    )
+
     tape_x = 1
     tape_y = 1
     tape_started = False
@@ -830,63 +882,49 @@ def reparse_from_ocr(pdf_name: str, pages: str):
         page_id = f"{pdf_path.stem}_page_{page_num + 1:04d}"
 
         raw_text = raw_path.read_text(encoding="utf-8")
-        text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        rows, has_footer = parse_ocr_text(text, page_num, mission_keywords, valid_speakers)
 
-        initial_ts = ts_index.get_last_timestamp_before(page_num)
-
-        payload = build_page_json(
-            rows, lines, page_num, mission_cfg.page_offset,
-            valid_speakers, text_replacements,
-            mission_keywords, valid_locations,
-            inline_annotation_terms=invalid_location_annotations,
-            initial_ts=initial_ts,
-            previous_block_type=previous_block_type,
-            lexicon_path=lexicon_path,
-            footer_text_overrides=footer_text_overrides,
-            speaker_ocr_fixes=speaker_ocr_fixes,
-            has_footer=has_footer
+        payload = process_ocr_to_payload(
+            raw_text,
+            page_num,
+            mission_keywords,
+            valid_speakers,
+            page_builder_config,
+            post_processor,
+            ts_index,
+            previous_block_type,
+            apply_post_processing=False,  # Post-process once after all merges
         )
 
         # Optional fallback OCR passes (if files exist)
         raw_fallback_paths = sorted(ocr_dir.glob("*_ocr_raw_fallback.txt"))
         if raw_fallback_paths:
             raw_fallback = raw_fallback_paths[0].read_text(encoding="utf-8")
-            raw_fallback = raw_fallback.replace("\r\n", "\n").replace("\r", "\n")
-            fallback_lines = [line.strip() for line in raw_fallback.splitlines() if line.strip()]
-            fallback_rows, fallback_has_footer = parse_ocr_text(raw_fallback, page_num, mission_keywords, valid_speakers)
-            fallback_payload = build_page_json(
-                fallback_rows, fallback_lines, page_num, mission_cfg.page_offset,
-                valid_speakers, text_replacements,
-                mission_keywords, valid_locations,
-                inline_annotation_terms=invalid_location_annotations,
-                initial_ts=initial_ts,
-                previous_block_type=previous_block_type,
-                lexicon_path=lexicon_path,
-                footer_text_overrides=footer_text_overrides,
-                speaker_ocr_fixes=speaker_ocr_fixes,
-                has_footer=fallback_has_footer
+            fallback_payload = process_ocr_to_payload(
+                raw_fallback,
+                page_num,
+                mission_keywords,
+                valid_speakers,
+                page_builder_config,
+                post_processor,
+                ts_index,
+                previous_block_type,
+                apply_post_processing=False,
             )
             payload = merge_payloads(payload, fallback_payload)
 
         faint_paths = sorted(ocr_dir.glob("*_ocr_faint_fallback.txt"))
         if faint_paths:
             faint_text = faint_paths[0].read_text(encoding="utf-8")
-            faint_text = faint_text.replace("\r\n", "\n").replace("\r", "\n")
-            faint_lines = [line.strip() for line in faint_text.splitlines() if line.strip()]
-            faint_rows, faint_has_footer = parse_ocr_text(faint_text, page_num, mission_keywords, valid_speakers)
-            faint_payload = build_page_json(
-                faint_rows, faint_lines, page_num, mission_cfg.page_offset,
-                valid_speakers, text_replacements,
-                mission_keywords, valid_locations,
-                inline_annotation_terms=invalid_location_annotations,
-                initial_ts=initial_ts,
-                previous_block_type=previous_block_type,
-                lexicon_path=lexicon_path,
-                footer_text_overrides=footer_text_overrides,
-                speaker_ocr_fixes=speaker_ocr_fixes,
-                has_footer=faint_has_footer
+            faint_payload = process_ocr_to_payload(
+                faint_text,
+                page_num,
+                mission_keywords,
+                valid_speakers,
+                page_builder_config,
+                post_processor,
+                ts_index,
+                previous_block_type,
+                apply_post_processing=False,
             )
             payload = merge_payloads(payload, faint_payload)
 
